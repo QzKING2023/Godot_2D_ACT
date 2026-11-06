@@ -16,8 +16,9 @@ public partial class CombatHud : Control
     private const float BarH = 16f;
 
     public PlayerController Player { get; set; } = null!;
-    public EnemyController Enemy { get; set; } = null!;
+    public EnemyController? Enemy { get; set; }
     public Combat.TimeSlowManager TimeSlow { get; set; } = null!;
+    public string ArenaMessage { get; set; } = "Reach the boss boundary to begin the fight";
 
     private string _lastCombatLine = "";
     private string _lastTimeLine = "";
@@ -35,7 +36,7 @@ public partial class CombatHud : Control
         var font = ThemeDB.FallbackFont;
         DrawString(font, new Vector2(32, 40), "ACT CORE LOOP | placeholder arena", HorizontalAlignment.Left, -1, 24, Colors.White);
         DrawString(font, new Vector2(32, 68),
-            "A/D move  Space jump  J/LMB attack  Shift dodge  Ctrl block(hold)  Q time slow(hold)  K skill  E interact  R reset",
+            "A/D move  Space jump  J/LMB attack  Shift dodge  Ctrl block(hold)  Q time slow(hold)  K skill  R reset",
             HorizontalAlignment.Left, -1, 15, new Color("a8dadc"));
         DrawString(font, new Vector2(32, 90),
             "Pad: LS move  A jump  X attack  B dodge  RB block  LB slow  Y skill",
@@ -49,12 +50,15 @@ public partial class CombatHud : Control
         DrawString(font, new Vector2(BarX + BarW + 16, y + 13),
             $"state {Player.State}{(Player.IsDown ? "  DOWN - press R" : "")}",
             HorizontalAlignment.Left, -1, 18, Player.IsDown ? Colors.Red : Colors.White);
-        DrawString(font, new Vector2(BarX + BarW + 16, y + 39),
-            $"enemy {Enemy.State}  hp {Enemy.Hp:0}/{Enemy.MaxHp:0}",
-            HorizontalAlignment.Left, -1, 18, Colors.Orange);
+        if (Enemy is not null)
+            DrawString(font, new Vector2(BarX + BarW + 16, y + 39),
+                $"enemy {Enemy.State}  hp {Enemy.Hp:0}/{Enemy.MaxHp:0}",
+                HorizontalAlignment.Left, -1, 18, Colors.Orange);
 
         DrawString(font, new Vector2(32, 250), $"combat: {_lastCombatLine}", HorizontalAlignment.Left, -1, 19, Colors.Yellow);
         DrawString(font, new Vector2(32, 276), $"time:   {_lastTimeLine}", HorizontalAlignment.Left, -1, 16, new Color("c77dff"));
+        DrawString(font, new Vector2(32, 316), ArenaMessage, HorizontalAlignment.Left, -1, 20,
+            ArenaMessage.Contains("DEFEATED") ? new Color("80ed99") : new Color("ffd166"));
         if (TimeSlow.Active)
             DrawString(font, new Vector2(1090, 40), "TIME SLOW", HorizontalAlignment.Left, -1, 26, new Color("9d4edd"));
     }

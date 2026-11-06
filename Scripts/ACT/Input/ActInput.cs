@@ -16,7 +16,6 @@ public static class ActInput
     public static bool TimeSlowPressed() => Godot.Input.IsActionJustPressed("time_slow");
     public static bool SkillPressed() => Godot.Input.IsActionJustPressed("skill");
     public static bool SkillHeld() => Godot.Input.IsActionPressed("skill");
-    public static bool InteractPressed() => Godot.Input.IsActionJustPressed("interact");
     public static bool ResetPressed() => Godot.Input.IsActionJustPressed("reset_round");
     public static bool TimeSlowHeld() => Godot.Input.IsActionPressed("time_slow");
 }

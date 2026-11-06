@@ -421,6 +421,14 @@ public partial class PlayerController : CharacterBody2D
         SetState(PlayerState.Idle, "round reset");
     }
 
+    public void RestoreHp(float hp)
+    {
+        Hp = Mathf.Clamp(hp, 1f, MaxHp);
+        Guard = MaxGuard;
+        IsDown = false;
+        SetState(PlayerState.Idle, "scene transition");
+    }
+
     private void SetState(PlayerState next, string reason)
     {
         if (State == next) return;

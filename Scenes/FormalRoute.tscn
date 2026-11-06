@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+[ext_resource type="Script" path="res://Scripts/ACT/Arena/FormalStage.cs" id="1"]
+[node name="FormalRoute" type="Node2D"]
+script = ExtResource("1")
+HasEnemy = false
+NextScene = "res://Scenes/FormalEncounter.tscn"

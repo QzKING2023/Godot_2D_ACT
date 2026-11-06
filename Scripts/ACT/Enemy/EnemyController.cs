@@ -34,6 +34,7 @@ public partial class EnemyController : CharacterBody2D
     private float _stateEndsAt;
     private float _nextAttackAllowedAt;
     private float _telegraphFlash;
+    private float _attackFlashUntil;
 
     public override void _Ready()
     {
@@ -135,7 +136,9 @@ public partial class EnemyController : CharacterBody2D
     private void BeginStrike()
     {
         _telegraphFlash = 1f;
+        _attackFlashUntil = Now + 0.18f;
         SetState(EnemyState.Strike, "striking");
+        QueueRedraw();
     }
 
     private void ResolveStrike()
@@ -218,6 +221,11 @@ public partial class EnemyController : CharacterBody2D
             // Warning arc: readable pre-attack signal (placeholder art later).
             DrawArc(Vector2.Zero, 60, -Mathf.Pi / 2 - 0.9f, -Mathf.Pi / 2 + 0.9f, 16,
                 new Color(1, 0.85f, 0.3f, 0.6f + 0.4f * _telegraphFlash), 6);
+        }
+        if (Now < _attackFlashUntil)
+        {
+            DrawRect(new Rect2(-34, -58, 68, 116), new Color(1f, 0.1f, 0.1f, 0.72f), false, 8f);
+            DrawCircle(Vector2.Zero, 72f, new Color(1f, 0.1f, 0.1f, 0.16f));
         }
     }
 }

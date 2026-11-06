@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Godot;
 using ACTSpike.ACT.Combat;
 using ACTSpike.ACT.Config;
+using ACTSpike.ACT.Core;
 using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.HUD;
 using ACTSpike.ACT.Input;
@@ -17,8 +18,11 @@ namespace ACTSpike.ACT.Arena;
 public partial class TestArena : Node2D
 {
     private const float FloorTopY = 560f;
+    private const float ArenaWidth = 2400f;
+    private const float BossBoundaryX = 1640f;
+    private const float VictoryBoundaryX = 2260f;
     private static readonly Vector2 PlayerSpawn = new(260, FloorTopY - 23);
-    private static readonly Vector2 EnemySpawn = new(900, FloorTopY - 50);
+    private static readonly Vector2 EnemySpawn = new(1840, FloorTopY - 50);
 
     private CombatWindowConfig _windows = new();
     private TimeSlowConfig _timeSlowConfig = new();
@@ -26,6 +30,9 @@ public partial class TestArena : Node2D
     private PlayerController _player = null!;
     private EnemyController _enemy = null!;
     private CombatHud _hud = null!;
+    private bool _bossArenaEntered;
+    private bool _transitioning;
+    private bool _victory;
 
     public override void _Ready()
     {
@@ -39,10 +46,15 @@ public partial class TestArena : Node2D
 
         _player = new PlayerController { Name = "Player", Position = PlayerSpawn, Windows = _windows, TimeSlow = _timeSlowConfig };
         AddChild(_player);
+        if (GetNodeOrNull<RunSession>("/root/RunSession") is { HasPlayerState: true } session)
+            _player.RestoreHp(session.PlayerHp);
 
         _enemy = new EnemyController { Name = "Enemy", Position = EnemySpawn, Windows = _windows };
         AddChild(_enemy);
         _enemy.Bind(_player, _windows);
+
+        var camera = new Camera2D { Name = "RouteCamera", Position = new Vector2(0, -80), LimitLeft = 0, LimitTop = 0, LimitRight = (int)ArenaWidth, LimitBottom = 720, PositionSmoothingEnabled = true, PositionSmoothingSpeed = 8f };
+        _player.AddChild(camera);
 
         BuildHud();
         WireFeedback();
@@ -62,13 +74,25 @@ public partial class TestArena : Node2D
         {
             GD.Print("[Arena] reset requested");
             Engine.TimeScale = 1.0;
+            GetNodeOrNull<RunSession>("/root/RunSession")?.Clear();
             GetTree().ReloadCurrentScene();
         }
-        if (ActInput.InteractPressed())
+        if (!_bossArenaEntered && _player.GlobalPosition.X >= BossBoundaryX)
         {
-            // E is keyboard-only this round (Xbox B is bound to dodge) - see report.
-            GD.Print("[Arena] interact pressed (no interactable objects yet)");
-            _hud.ReportCombat("interact: reserved, nothing to use yet");
+            _bossArenaEntered = true;
+            _hud.ArenaMessage = "BOSS ARENA - defeat the enemy, then exit right";
+            _hud.ReportCombat("boss arena entered automatically");
+            GD.Print("[Arena] boss boundary crossed");
+        }
+
+        if (!_victory && !_transitioning && _bossArenaEntered && _enemy.State == EnemyState.Dead &&
+            _player.GlobalPosition.X >= VictoryBoundaryX)
+        {
+            _victory = true;
+            _transitioning = true;
+            _hud.ArenaMessage = "EXIT REACHED - transitioning";
+            GD.Print("[Arena] victory boundary crossed; changing scene");
+            GetTree().ChangeSceneToFile("res://Scenes/Victory.tscn");
         }
     }
 
@@ -79,12 +103,19 @@ public partial class TestArena : Node2D
 
     private void BuildRoomGeometry()
     {
-        AddStaticRect(new Rect2(0, FloorTopY, 1280, 160), new Color("1b2b3a"));      // floor
+        AddStaticRect(new Rect2(0, FloorTopY, ArenaWidth, 160), new Color("1b2b3a"));      // floor
         AddStaticRect(new Rect2(0, 0, 40, 720), new Color("16202c"));                // left wall
-        AddStaticRect(new Rect2(1240, 0, 40, 720), new Color("16202c"));             // right wall
+        AddStaticRect(new Rect2(ArenaWidth - 40, 0, 40, 720), new Color("16202c"));  // right wall
+
+        // Short, collision-safe route: a low step, an automatic boss boundary, and the boss apron.
+        AddStaticRect(new Rect2(500, 500, 180, 60), new Color("29445a"));
+        AddStaticRect(new Rect2(1380, 520, 220, 40), new Color("29445a"));
+        AddMarker(new Vector2(BossBoundaryX - 80, FloorTopY - 72), "BOSS BOUNDARY", new Color("ffd166"));
+        AddMarker(new Vector2(VictoryBoundaryX - 55, FloorTopY - 72), "EXIT", new Color("80ed99"));
+        AddMarker(new Vector2(100, FloorTopY - 72), "START", new Color("a8dadc"));
     }
 
-    private void AddStaticRect(Rect2 rect, Color color)
+    private StaticBody2D AddStaticRect(Rect2 rect, Color color)
     {
         var body = new StaticBody2D
         {
@@ -105,6 +136,13 @@ public partial class TestArena : Node2D
         };
         body.AddChild(visual);
         AddChild(body);
+        return body;
+    }
+
+    private void AddMarker(Vector2 position, string text, Color color)
+    {
+        var label = new Label { Text = text, Position = position, Modulate = color, ZIndex = 3 };
+        AddChild(label);
     }
 
     private void BuildHud()
@@ -145,7 +183,7 @@ public partial class TestArena : Node2D
         foreach (var action in new[]
                  {
                      "move_left", "move_right", "move_up", "move_down", "jump", "attack",
-                     "dodge", "block", "time_slow", "skill", "interact", "reset_round"
+                     "dodge", "block", "time_slow", "skill", "reset_round"
                  })
         {
             var parts = new List<string>();
