@@ -1,0 +1,8 @@
+# Godot generated
+.godot/
+
+# IDE
+.idea/
+
+# build output
+*.user
