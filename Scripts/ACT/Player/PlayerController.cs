@@ -44,10 +44,15 @@ public partial class PlayerController : CharacterBody2D
     public event Action<float>? TimeResourceRefund;
 
     private Area2D _attackHitbox = null!;
+    private Node2D _skillAimIndicator = null!;
     private readonly HashSet<EnemyController> _swingHit = new();
 
     // Input latches (edges captured in _Process, consumed in _PhysicsProcess).
     private bool _jumpQueued, _attackQueued, _dodgeQueued, _skillQueued;
+    private bool _skillCharging;
+    private Vector2 _skillAim;
+    private bool _dodgeStartedInAir;
+    private int _dodgeDirection;
     private Vector2 _moveAxis;
 
     // Real-timestamp bookkeeping for perfect windows and state timers.
@@ -82,6 +87,21 @@ public partial class PlayerController : CharacterBody2D
         };
         AddChild(visual);
 
+        // Programmatic aim cue for the release-to-cast Y skill.
+        _skillAimIndicator = new Node2D { Name = "SkillAimIndicator", ZIndex = 5, Visible = false };
+        _skillAimIndicator.AddChild(new Line2D
+        {
+            Width = 3f,
+            DefaultColor = new Color("ffd166"),
+            Points = new[] { Vector2.Zero, new Vector2(48, 0) }
+        });
+        _skillAimIndicator.AddChild(new Polygon2D
+        {
+            Polygon = new[] { new Vector2(60, 0), new Vector2(45, -8), new Vector2(45, 8) },
+            Color = new Color("ffd166")
+        });
+        AddChild(_skillAimIndicator);
+
         _attackHitbox = new Area2D
         {
             Name = "AttackHitbox", // future: swap for animated frame data
@@ -103,8 +123,25 @@ public partial class PlayerController : CharacterBody2D
         if (ActInput.JumpPressed()) _jumpQueued = true;
         if (ActInput.AttackPressed()) _attackQueued = true;
         if (ActInput.DodgePressed()) _dodgeQueued = true;
-        if (ActInput.SkillPressed()) _skillQueued = true;
         _moveAxis = ActInput.MoveAxis();
+
+        // Y is a release-to-cast skill: hold it to aim, then release to launch.
+        if (ActInput.SkillPressed()) _skillCharging = true;
+        if (_skillCharging)
+        {
+            _skillAim = _moveAxis;
+            UpdateSkillAimIndicator();
+            if (!ActInput.SkillHeld())
+            {
+                _skillQueued = true;
+                _skillCharging = false;
+                _skillAimIndicator.Visible = false;
+            }
+        }
+        else
+        {
+            _skillAimIndicator.Visible = false;
+        }
     }
 
     public override void _PhysicsProcess(double delta)
@@ -124,6 +161,8 @@ public partial class PlayerController : CharacterBody2D
         if (IsDown)
         {
             _jumpQueued = _attackQueued = _dodgeQueued = _skillQueued = false;
+            _skillCharging = false;
+            _skillAimIndicator.Visible = false;
             return;
         }
 
@@ -138,7 +177,15 @@ public partial class PlayerController : CharacterBody2D
         if (locked || now < _stateEndsAt)
         {
             if (locked && now >= _stateEndsAt)
+            {
+                if (State == PlayerState.Dodge)
+                    Velocity = _dodgeStartedInAir
+                        ? new Vector2(_dodgeDirection * MoveSpeed, 0f)
+                        : Vector2.Zero;
+                else if (State == PlayerState.Skill)
+                    Velocity = Vector2.Zero;
                 SetState(IsOnFloor() ? PlayerState.Idle : PlayerState.Jump, "action window ended");
+            }
         }
         else if (_skillQueued)
         {
@@ -187,9 +234,15 @@ public partial class PlayerController : CharacterBody2D
         _stateEndsAt = now + Windows.DodgeSeconds;
         _dodgeStartedAt = now;
         _invulnerableUntil = now + Windows.DodgeSeconds;
-        int dir = _moveAxis.X != 0 ? (_moveAxis.X > 0 ? 1 : -1) : Facing;
+        _dodgeStartedInAir = !IsOnFloor();
+        // Ground dodge is forward-only. Air dodge may reverse direction, but only
+        // through the front/back axis relative to the current facing.
+        int dir = Facing;
+        if (!IsOnFloor() && _moveAxis.X != 0 && Mathf.Sign(_moveAxis.X) != Facing)
+            dir = -Facing;
         Facing = dir;
-        Velocity = Velocity with { X = dir * DodgeSpeed };
+        _dodgeDirection = dir;
+        Velocity = new Vector2(dir * DodgeSpeed, 0f);
         SetState(PlayerState.Dodge, "dodge");
     }
 
@@ -197,18 +250,45 @@ public partial class PlayerController : CharacterBody2D
     {
         _stateEndsAt = now + Windows.SkillSeconds;
         _invulnerableUntil = now + Windows.SkillSeconds;
-        Vector2 dir = _moveAxis.LengthSquared() > 0.15f ? _moveAxis.Normalized() : new Vector2(Facing, 0);
-        if (dir.X != 0) Facing = dir.X > 0 ? 1 : -1;
+        Vector2 dir = _skillAim.LengthSquared() > 0.15f
+            ? _skillAim.Normalized()
+            : new Vector2(Facing, 0f);
+        if (Mathf.Abs(dir.X) > 0.01f)
+            Facing = dir.X > 0 ? 1 : -1;
+        // Y skill follows the full aim vector: keyboard gives 8 directions,
+        // while an analog stick preserves its continuous 360-degree angle.
+        // Gravity remains suspended for the duration of the skill.
         Velocity = dir * Windows.SkillSpeed;
         _swingHit.Clear();
         _attackHitbox.Position = Vector2.Zero;
         _attackHitbox.Monitoring = true;
-        SetState(PlayerState.Skill, $"skill dash ({dir.X:0.0},{dir.Y:0.0})");
+        SetState(PlayerState.Skill, $"skill dash ({dir.X:0.00},{dir.Y:0.00})");
+    }
+
+    private void UpdateSkillAimIndicator()
+    {
+        Vector2 direction = _skillAim.LengthSquared() > 0.15f
+            ? _skillAim.Normalized()
+            : new Vector2(Facing, 0f);
+        _skillAimIndicator.Rotation = direction.Angle();
+        _skillAimIndicator.Visible = true;
     }
 
     private void ApplyGravityAndMove(float dt)
     {
-        if (!IsOnFloor()) Velocity = Velocity with { Y = Velocity.Y + Gravity * dt };
+        // While Y is held for aiming, freeze controllable movement in place.
+        // Direction sampling and the aim indicator continue in _Process.
+        if (_skillCharging && IsOnFloor()
+            && State is (PlayerState.Idle or PlayerState.Move or PlayerState.Block))
+        {
+            Velocity = Vector2.Zero;
+            return;
+        }
+
+        if (State == PlayerState.Dodge)
+            Velocity = Velocity with { Y = 0f };
+        else if (State != PlayerState.Skill && !IsOnFloor())
+            Velocity = Velocity with { Y = Velocity.Y + Gravity * dt };
 
         switch (State)
         {
@@ -221,8 +301,10 @@ public partial class PlayerController : CharacterBody2D
                 Velocity = Velocity with { X = Mathf.MoveToward(Velocity.X, 0, Acceleration * dt) };
                 break;
             default:
-                float target = _moveAxis.X * MoveSpeed;
-                Velocity = Velocity with { X = Mathf.MoveToward(Velocity.X, target, Acceleration * dt) };
+                // Ground movement is direct. In the air, preserve the launch
+                // vector until a dodge or skill explicitly changes it.
+                if (IsOnFloor())
+                    Velocity = Velocity with { X = _moveAxis.X * MoveSpeed };
                 if (State == PlayerState.Jump && IsOnFloor())
                     SetState(Mathf.Abs(Velocity.X) > 10f ? PlayerState.Move : PlayerState.Idle, "landed");
                 else if (State == PlayerState.Idle && Mathf.Abs(Velocity.X) > 10f)
