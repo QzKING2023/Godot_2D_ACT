@@ -90,7 +90,7 @@ public partial class TutorialStage : Node2D
             _blockCount++;
         if ((Kind == TutorialKind.Dodge || Kind == TutorialKind.PerfectDefense) && _player.State == PlayerState.Dodge && _lastState != PlayerState.Dodge)
             _dodgeCount++;
-        if (Kind == TutorialKind.Combat && _enemy is not null && _enemy.State == EnemyState.Dead) _count = 1;
+        if (Kind == TutorialKind.Combat && _enemy is not null && _enemy.IsDefeated) _count = 1;
         _lastState = _player.State;
         if (IsComplete()) Complete();
     }

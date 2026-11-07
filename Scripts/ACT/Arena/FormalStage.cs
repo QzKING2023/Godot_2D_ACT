@@ -60,7 +60,7 @@ public partial class FormalStage : Node2D
             return;
         }
         if (_transitioning || _player.IsDown) return;
-        bool ready = !HasEnemy || _enemy is not null && _enemy.State == EnemyState.Dead;
+        bool ready = !HasEnemy || _enemy is not null && _enemy.IsDefeated;
         if (ready && _player.GlobalPosition.X >= 1050f)
         {
             _transitioning = true;

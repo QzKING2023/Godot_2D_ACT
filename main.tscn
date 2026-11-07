@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3 uid="uid://xu2kjyxe3pc7"]
 
-[ext_resource type="Script" path="res://Scripts/ACT/SpikeMain.cs" id="1"]
+[ext_resource type="Script" uid="uid://dygek6ho61hhk" path="res://Scripts/ACT/SpikeMain.cs" id="1"]
 
 [node name="ACTSpike" type="Node2D"]
 script = ExtResource("1")

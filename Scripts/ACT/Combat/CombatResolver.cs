@@ -1,4 +1,5 @@
 using ACTSpike.ACT.Config;
+using ACTSpike.ACT.Enemy;
 
 namespace ACTSpike.ACT.Combat;
 
@@ -40,7 +41,8 @@ public static class CombatResolver
         DefenseSnapshot defense,
         float incomingDamage,
         CombatWindowConfig windows,
-        TimeSlowConfig timeSlow)
+        TimeSlowConfig timeSlow,
+        BossAttackKind attackKind = BossAttackKind.Normal)
     {
         // Skill (and future i-frame sources) override everything.
         if (defense.IsInvulnerable)
@@ -54,6 +56,17 @@ public static class CombatResolver
                 ? new AttackResolution(DefenseResult.PerfectDodged, 0f, 0f, timeSlow.PerfectDodgeRefund, false)
                 : new AttackResolution(DefenseResult.Dodged, 0f, 0f, 0f, false);
         }
+
+        // Break/grab attacks are intentionally not blockable. The player must
+        // leave the threat with a dodge or the K skill's invulnerability.
+        if (attackKind == BossAttackKind.BreakGrab)
+            return new AttackResolution(DefenseResult.Hit, incomingDamage, 0f, 0f, false);
+
+        // Delayed area attacks are spatial hazards. The enemy only calls the
+        // resolver while the player remains inside the hazard, so blocking does
+        // not turn this into a safe third answer.
+        if (attackKind == BossAttackKind.DelayedArea)
+            return new AttackResolution(DefenseResult.Hit, incomingDamage, 0f, 0f, false);
 
         // Block: chip damage + guard drain; perfect if the hold began inside the window.
         if (defense.IsBlocking)

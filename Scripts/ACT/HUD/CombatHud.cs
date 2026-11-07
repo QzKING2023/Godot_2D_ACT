@@ -51,9 +51,20 @@ public partial class CombatHud : Control
             $"state {Player.State}{(Player.IsDown ? "  DOWN - press R" : "")}",
             HorizontalAlignment.Left, -1, 18, Player.IsDown ? Colors.Red : Colors.White);
         if (Enemy is not null)
+        {
             DrawString(font, new Vector2(BarX + BarW + 16, y + 39),
-                $"enemy {Enemy.State}  hp {Enemy.Hp:0}/{Enemy.MaxHp:0}",
+                $"boss {Enemy.State}  hp {Enemy.Hp:0}/{Enemy.MaxHp:0}",
                 HorizontalAlignment.Left, -1, 18, Colors.Orange);
+            if (Enemy.State is EnemyState.Telegraph or EnemyState.Strike)
+                DrawString(font, new Vector2(BarX + BarW + 16, y + 65),
+                    $"{Enemy.CurrentAttack.Name}: {Enemy.CurrentAttack.ResponseHint}",
+                    HorizontalAlignment.Left, -1, 17,
+                    Enemy.CurrentAttackKind == BossAttackKind.DelayedArea
+                        ? new Color("c77dff")
+                        : Enemy.CurrentAttackKind == BossAttackKind.BreakGrab
+                            ? new Color("ff6b8a")
+                            : new Color("ffd166"));
+        }
 
         DrawString(font, new Vector2(32, 250), $"combat: {_lastCombatLine}", HorizontalAlignment.Left, -1, 19, Colors.Yellow);
         DrawString(font, new Vector2(32, 276), $"time:   {_lastTimeLine}", HorizontalAlignment.Left, -1, 16, new Color("c77dff"));

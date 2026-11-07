@@ -33,6 +33,8 @@ public partial class TestArena : Node2D
     private bool _bossArenaEntered;
     private bool _transitioning;
     private bool _victory;
+    private bool _defeatReported;
+    private bool _bossDefeatReported;
 
     public override void _Ready()
     {
@@ -49,7 +51,7 @@ public partial class TestArena : Node2D
         if (GetNodeOrNull<RunSession>("/root/RunSession") is { HasPlayerState: true } session)
             _player.RestoreHp(session.PlayerHp);
 
-        _enemy = new EnemyController { Name = "Enemy", Position = EnemySpawn, Windows = _windows };
+        _enemy = new EnemyController { Name = "Boss", Position = EnemySpawn, MaxHp = 6f, Windows = _windows };
         AddChild(_enemy);
         _enemy.Bind(_player, _windows);
 
@@ -77,6 +79,13 @@ public partial class TestArena : Node2D
             GetNodeOrNull<RunSession>("/root/RunSession")?.Clear();
             GetTree().ReloadCurrentScene();
         }
+        if (_player.IsDown && !_defeatReported)
+        {
+            _defeatReported = true;
+            _hud.ArenaMessage = "PLAYER DOWN - press R to reset the arena";
+            _hud.ReportCombat("failure: player defeated");
+            GD.Print("[Arena] player defeated; waiting for R reset");
+        }
         if (!_bossArenaEntered && _player.GlobalPosition.X >= BossBoundaryX)
         {
             _bossArenaEntered = true;
@@ -85,7 +94,15 @@ public partial class TestArena : Node2D
             GD.Print("[Arena] boss boundary crossed");
         }
 
-        if (!_victory && !_transitioning && _bossArenaEntered && _enemy.State == EnemyState.Dead &&
+        if (_bossArenaEntered && !_bossDefeatReported && _enemy.IsDefeated)
+        {
+            _bossDefeatReported = true;
+            _hud.ArenaMessage = "BOSS DEFEATED - reach EXIT";
+            _hud.ReportCombat("victory condition met: boss defeated");
+            GD.Print("[Arena] boss defeated; exit is now active");
+        }
+
+        if (!_victory && !_transitioning && _bossArenaEntered && _enemy.IsDefeated &&
             _player.GlobalPosition.X >= VictoryBoundaryX)
         {
             _victory = true;

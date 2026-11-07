@@ -357,9 +357,12 @@ public partial class PlayerController : CharacterBody2D
     }
 
     public bool TryReceiveEnemyAttack(float incomingDamage, out AttackResolution resolution)
+        => TryReceiveEnemyAttack(incomingDamage, BossAttackKind.Normal, out resolution);
+
+    public bool TryReceiveEnemyAttack(float incomingDamage, BossAttackKind attackKind, out AttackResolution resolution)
     {
         var snapshot = BuildDefenseSnapshot();
-        resolution = CombatResolver.Resolve(snapshot, incomingDamage, Windows, TimeSlow);
+        resolution = CombatResolver.Resolve(snapshot, incomingDamage, Windows, TimeSlow, attackKind);
         ApplyResolution(incomingDamage, resolution);
         return resolution.Result != DefenseResult.Hit; // false = clean hit landed
     }

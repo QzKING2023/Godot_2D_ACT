@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="ACT Spike"
-run/main_scene="res://Scenes/Tutorial/Movement.tscn"
+run/main_scene="res://Scenes/CoreLoop.tscn"
 config/features=PackedStringArray("4.5", "C#")
 
 [autoload]
