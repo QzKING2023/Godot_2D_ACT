@@ -98,18 +98,16 @@ public static class MultiEnemyStageSmoke
             if (!enemyA.Visual.IsTimeSlowBound || !enemyB.Visual.IsTimeSlowBound)
                 failures.Add("StageEnemyRoster did not propagate TimeSlowManager binding to dynamically registered enemies");
 
-            // Step both enemies out of Spawn into Telegraph
+            // Step enemyA into Telegraph, stagger it (releasing its melee token), then step enemyB into Telegraph
             enemyA._PhysicsProcess(0.016); // Spawn -> Idle
             enemyB._PhysicsProcess(0.016); // Spawn -> Idle
             enemyA._PhysicsProcess(0.016); // Idle -> Telegraph
+            enemyA.TakeDamage(1f);         // Telegraph -> Hitstun (releases melee token)
             enemyB._PhysicsProcess(0.016); // Idle -> Telegraph
+            enemyB.TakeDamage(1f);
 
             if (!telegraphSources.Contains(enemyA) || !telegraphSources.Contains(enemyB))
                 failures.Add($"roster did not forward TelegraphStarted for both enemies (count={telegraphSources.Count})");
-
-            // Damage both independently
-            enemyA.TakeDamage(1f);
-            enemyB.TakeDamage(1f);
             if (!damagedSources.Contains(enemyA) || !damagedSources.Contains(enemyB))
                 failures.Add($"roster did not forward Damaged for both enemies (count={damagedSources.Count})");
 
@@ -158,7 +156,7 @@ public static class MultiEnemyStageSmoke
             EnemyInitialDelaySeconds = 0f,
             EnemyAttackCooldown = 0f,
             NormalAttackTelegraphSeconds = 0f,
-            NormalAttackActiveSeconds = 0.05f,
+            NormalAttackActiveSeconds = 0f,
             NormalAttackRecoverySeconds = 0.05f,
             EnemyAttackRange = 300f
         };
@@ -217,6 +215,7 @@ public static class MultiEnemyStageSmoke
             bool audioAfterA = audio.PlayedCueCount == audioBefore + 1 && audio.LastCue == CombatSfxId.TelegraphNormal;
             enemyA._PhysicsProcess(0.016); // Telegraph -> Strike (spawns ring)
             bool ringAfterA = feedback.ActiveRingCount > ringsBefore;
+            enemyA._PhysicsProcess(0.016); // Strike -> Recover (releases melee token)
 
             int audioBeforeB = audio.PlayedCueCount;
             int ringsBeforeB = feedback.ActiveRingCount;

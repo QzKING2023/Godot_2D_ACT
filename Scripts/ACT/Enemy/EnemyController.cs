@@ -7,7 +7,7 @@ using ACTSpike.ACT.Visual;
 
 namespace ACTSpike.ACT.Enemy;
 
-public enum EnemyState { Spawn, Idle, Chase, Telegraph, Strike, Recover, Hitstun, Dead, Victory }
+public enum EnemyState { Spawn, Idle, Chase, Telegraph, Strike, Recover, Hitstun, ShieldBroken, Dead, Victory }
 
 public enum BossAttackKind
 {
@@ -87,7 +87,11 @@ public partial class EnemyController : CharacterBody2D
     public BossAttackDefinition CurrentAttack => _hasCurrentAttack ? _currentAttack : CreateNormalAttackDefinition();
     public BossAttackKind CurrentAttackKind => CurrentAttack.Kind;
     public bool IsDefeated => State is EnemyState.Dead or EnemyState.Victory;
+    public bool IsShieldBroken => State == EnemyState.ShieldBroken;
     public bool ShowsOverheadHealthBar => !IsBoss && !IsDefeated;
+    public virtual AttackTokenPool AttackTokenPoolKind => AttackTokenPool.Melee;
+    public virtual bool UsesEncounterAttackToken => !IsBoss;
+    public bool HoldsAttackToken => _attackCoordinator is not null && _attackCoordinator.HoldsToken(this);
     /// <summary>Normalized 0..1 telegraph progress computed from real timestamps.</summary>
     public float TelegraphProgress => State == EnemyState.Telegraph
         ? Mathf.Clamp((Now - _telegraphStartedAt) / Mathf.Max(0.001f, CurrentAttack.TelegraphSeconds), 0f, 1f)
@@ -107,8 +111,11 @@ public partial class EnemyController : CharacterBody2D
 
     private PlayerController? _player;
     private TimeSlowManager? _timeSlow;
+    private EncounterAttackCoordinator? _attackCoordinator;
     private BossAttackDefinition _currentAttack;
     private bool _hasCurrentAttack;
+    private BossAttackDefinition _pendingAttack;
+    private bool _hasPendingAttack;
     private float _stateEndsAt;
     private float _telegraphStartedAt;
     private float _nextAttackAllowedAt;
@@ -152,10 +159,12 @@ public partial class EnemyController : CharacterBody2D
 
     public void Bind(PlayerController player, CombatWindowConfig windows)
     {
+        ReleaseAttackToken();
         _player = player;
         Windows = windows;
         Hp = MaxHp;
         _hasCurrentAttack = false;
+        _hasPendingAttack = false;
         _strikeResolved = false;
         _nextAttackAllowedAt = Now + Windows.EnemyInitialDelaySeconds;
         _stateEndsAt = Now + Windows.BossSpawnSeconds;
@@ -169,6 +178,19 @@ public partial class EnemyController : CharacterBody2D
     {
         _timeSlow = timeSlow;
         Visual?.BindTimeSlow(timeSlow);
+    }
+
+    public void BindAttackCoordinator(EncounterAttackCoordinator? coordinator)
+    {
+        if (ReferenceEquals(_attackCoordinator, coordinator))
+            return;
+        ReleaseAttackToken();
+        _attackCoordinator = coordinator;
+    }
+
+    public override void _ExitTree()
+    {
+        ReleaseAttackToken();
     }
 
     /// <summary>Delegates local visual-only freeze to the enemy's visual node without touching Engine.TimeScale.</summary>
@@ -194,8 +216,14 @@ public partial class EnemyController : CharacterBody2D
                 Velocity = Vector2.Zero;
                 break;
             case EnemyState.Hitstun:
+            case EnemyState.ShieldBroken:
                 Velocity = Velocity with { X = 0 };
-                if (Now >= _stateEndsAt) SetState(PreviousChaseState, "recovered from hitstun");
+                if (Now >= _stateEndsAt)
+                {
+                    SetState(
+                        PreviousChaseState,
+                        State == EnemyState.ShieldBroken ? "recovered from shield break" : "recovered from hitstun");
+                }
                 break;
             case EnemyState.Telegraph:
                 Velocity = Velocity with { X = 0 };
@@ -203,7 +231,7 @@ public partial class EnemyController : CharacterBody2D
                 break;
             case EnemyState.Strike:
                 if (!_strikeResolved) ResolveStrike();
-                if (Now >= _stateEndsAt)
+                if (State == EnemyState.Strike && Now >= _stateEndsAt)
                 {
                     _stateEndsAt = Now + CurrentAttack.RecoverySeconds;
                     SetState(EnemyState.Recover, $"{CurrentAttack.Name} active window ended");
@@ -244,11 +272,8 @@ public partial class EnemyController : CharacterBody2D
         bool inRange = distance <= Windows.EnemyAttackRange &&
                        Mathf.Abs(_player.GlobalPosition.Y - GlobalPosition.Y) < 90f;
 
-        if (inRange && CanStartAttack)
-        {
-            BeginTelegraph();
+        if (inRange && CanStartAttack && TryBeginTelegraph())
             return;
-        }
 
         if (distance > Windows.EnemyAttackRange * 0.7f)
         {
@@ -267,14 +292,47 @@ public partial class EnemyController : CharacterBody2D
 
     protected virtual BossAttackDefinition SelectNextAttack() => CreateNormalAttackDefinition();
 
-    protected void BeginTelegraph() => BeginTelegraph(SelectNextAttack());
+    protected virtual float EstimateExpectedHitLeadSeconds(BossAttackDefinition attack)
+        => Mathf.Max(0f, attack.TelegraphSeconds);
 
-    protected void BeginTelegraph(BossAttackDefinition attack)
+    protected bool TryAcquireAttackToken(BossAttackDefinition attack, float nowRealSec)
     {
+        if (!UsesEncounterAttackToken || _attackCoordinator is null)
+            return true;
+
+        float expectedHitRealSec = nowRealSec + EstimateExpectedHitLeadSeconds(attack);
+        return _attackCoordinator.TryAcquire(this, AttackTokenPoolKind, expectedHitRealSec);
+    }
+
+    protected void ReleaseAttackToken()
+    {
+        _attackCoordinator?.Release(this);
+    }
+
+    protected bool TryBeginTelegraph()
+    {
+        if (!_hasPendingAttack)
+        {
+            _pendingAttack = SelectNextAttack();
+            _hasPendingAttack = true;
+        }
+
+        if (!TryBeginTelegraph(_pendingAttack))
+            return false;
+
+        _hasPendingAttack = false;
+        return true;
+    }
+
+    protected bool TryBeginTelegraph(BossAttackDefinition attack)
+    {
+        float now = Now;
+        if (!TryAcquireAttackToken(attack, now))
+            return false;
+
         _currentAttack = attack;
         _hasCurrentAttack = true;
         _strikeResolved = false;
-        float now = Now;
         _telegraphStartedAt = now;
         _stateEndsAt = now + attack.TelegraphSeconds;
         SetState(EnemyState.Telegraph, $"{attack.Name} telegraph: {attack.ResponseHint}");
@@ -282,6 +340,7 @@ public partial class EnemyController : CharacterBody2D
         GD.Print($"[Enemy] telegraph {attack.Name} | response {attack.ResponseHint} | " +
                  $"telegraph {attack.TelegraphSeconds:0.00}s active {attack.ActiveSeconds:0.00}s " +
                  $"recovery {attack.RecoverySeconds:0.00}s damage {attack.Damage:0}");
+        return true;
     }
 
     protected virtual void BeginStrike()
@@ -326,7 +385,7 @@ public partial class EnemyController : CharacterBody2D
            Mathf.Abs(_player.GlobalPosition.Y - GlobalPosition.Y) < 110f;
 
     protected virtual bool ShouldDeflectHit(in EnemyHitContext hit)
-        => HasFrontalDefense && hit.IsFrontalStrike(GlobalPosition, Facing);
+        => HasFrontalDefense && !IsShieldBroken && hit.IsFrontalStrike(GlobalPosition, Facing);
 
     /// <summary>
     /// Resolves an incoming directional strike against this enemy, supporting frontal shield
@@ -358,6 +417,7 @@ public partial class EnemyController : CharacterBody2D
         if (Hp <= 0)
         {
             Hp = 0;
+            ReleaseAttackToken();
             _stateEndsAt = Now + Windows.VictoryDelaySeconds;
             SetState(EnemyState.Dead, "destroyed");
             Damaged?.Invoke(new EnemyDamagedCue(hit.Damage, Hp, MaxHp, Defeated: true, GlobalPosition));
@@ -381,8 +441,18 @@ public partial class EnemyController : CharacterBody2D
         return TakeHit(directHit) == EnemyHitOutcome.Damaged;
     }
 
+    /// <summary>Enters「破盾失衡」(shield-broken stagger), dropping frontal defense and releasing any held attack token.</summary>
+    public void EnterShieldBreak(float durationSeconds, string reason = "shield broken")
+    {
+        if (IsDefeated) return;
+        ReleaseAttackToken();
+        _stateEndsAt = Now + Mathf.Max(0f, durationSeconds);
+        SetState(EnemyState.ShieldBroken, reason);
+    }
+
     protected void EnterHitstun(string reason)
     {
+        ReleaseAttackToken();
         _stateEndsAt = Now + Windows.HitstunSeconds;
         SetState(EnemyState.Hitstun, reason);
     }
@@ -395,10 +465,12 @@ public partial class EnemyController : CharacterBody2D
 
     public void ResetTo(Vector2 position)
     {
+        ReleaseAttackToken();
         Position = position;
         Velocity = Vector2.Zero;
         Hp = MaxHp;
         _hasCurrentAttack = false;
+        _hasPendingAttack = false;
         _nextAttackAllowedAt = Now + Windows.EnemyInitialDelaySeconds;
         _stateEndsAt = Now + Windows.BossSpawnSeconds;
         _strikeResolved = false;
@@ -415,5 +487,7 @@ public partial class EnemyController : CharacterBody2D
         if (State == next) return;
         GD.Print($"[Enemy] {State} -> {next} ({reason})");
         State = next;
+        if (next is not (EnemyState.Telegraph or EnemyState.Strike))
+            ReleaseAttackToken();
     }
 }

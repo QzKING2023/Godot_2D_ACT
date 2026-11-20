@@ -27,7 +27,7 @@ public partial class SmokeTest : Node
         AwaitAreaTelegraph, AwaitAreaImpact,
         AwaitBlockTelegraph, AwaitBlockImpact,
         TimeSlowProbe, TimeSlowRelease, KillBoss, AwaitBossHit,
-        DirectionalSkillProbe
+        DirectionalSkillProbe, EncounterConcurrencyProbe
     }
 
     public PlayerController Player { get; set; } = null!;
@@ -58,6 +58,7 @@ public partial class SmokeTest : Node
     private bool _skillProbeUsed;
     private bool _jumpProbeUsed;
     private DirectionalCombatContractSmoke.DirectionalSkillPhysicsProbe? _directionalProbe;
+    private EncounterAttackCoordinatorSmoke.EncounterConcurrencyProbe? _concurrencyProbe;
 
     public override void _Ready()
     {
@@ -87,6 +88,7 @@ public partial class SmokeTest : Node
         HudFlowSmoke.Check(GetParent(), Fail);
         MultiEnemyStageSmoke.Check(GetParent(), Fail);
         DirectionalCombatContractSmoke.Check(GetParent(), Fail);
+        EncounterAttackCoordinatorSmoke.Check(GetParent(), Fail);
         GD.Print("[Smoke] running (ACT_SMOKE=1)");
     }
 
@@ -465,12 +467,21 @@ public partial class SmokeTest : Node
             case Phase.DirectionalSkillProbe:
                 if (_directionalProbe is { IsCompleted: true })
                 {
-                    if (GodotObject.IsInstanceValid(_directionalProbe))
-                    {
-                        _directionalProbe.GetParent()?.RemoveChild(_directionalProbe);
-                        _directionalProbe.Free();
-                    }
-                    _directionalProbe = null;
+                    DisposeProbe(ref _directionalProbe);
+                    _concurrencyProbe = EncounterAttackCoordinatorSmoke.StartLiveConcurrencyProbe(GetParent(), Fail);
+                    Enter(Phase.EncounterConcurrencyProbe, now);
+                }
+                else if (now - _phaseStart > 6f)
+                {
+                    Fail("directional skill physics probe timed out");
+                    Finish();
+                }
+                break;
+
+            case Phase.EncounterConcurrencyProbe:
+                if (_concurrencyProbe is { IsCompleted: true })
+                {
+                    DisposeProbe(ref _concurrencyProbe);
                     CheckPresentationEventsObserved();
                     FullChainSmoke.CheckExitHygiene(GetParent(), TimeSlow, Fail);
                     if (_failures.Count > 0)
@@ -484,7 +495,7 @@ public partial class SmokeTest : Node
                 }
                 else if (now - _phaseStart > 6f)
                 {
-                    Fail("directional skill physics probe timed out");
+                    Fail("encounter concurrency probe timed out");
                     Finish();
                 }
                 break;
@@ -522,6 +533,16 @@ public partial class SmokeTest : Node
         _phaseStart = now;
         if (next is not (Phase.AwaitNormalTelegraph or Phase.AwaitBreakTelegraph or Phase.AwaitAreaTelegraph or Phase.AwaitBlockTelegraph))
             _telegraphStartedAt = -1f;
+    }
+
+    private static void DisposeProbe<T>(ref T? probe) where T : Node
+    {
+        if (probe is not null && GodotObject.IsInstanceValid(probe))
+        {
+            probe.GetParent()?.RemoveChild(probe);
+            probe.Free();
+        }
+        probe = null;
     }
 
     private void Fail(string reason)

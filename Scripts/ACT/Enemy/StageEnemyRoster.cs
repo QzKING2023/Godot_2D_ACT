@@ -29,6 +29,7 @@ public partial class StageEnemyRoster : Node
     private EnemyController? _primaryBoss;
 
     public IReadOnlyList<EnemyController> Enemies => _enemies;
+    public EncounterAttackCoordinator AttackCoordinator { get; } = new();
     public int Count => _enemies.Count;
     public EnemyController? PrimaryBoss
         => _primaryBoss is not null && GodotObject.IsInstanceValid(_primaryBoss) ? _primaryBoss : null;
@@ -105,6 +106,7 @@ public partial class StageEnemyRoster : Node
 
         if (_timeSlow is not null)
             enemy.BindTimeSlow(_timeSlow);
+        enemy.BindAttackCoordinator(AttackCoordinator);
 
         _bindings[enemy] = binding;
         _enemies.Add(enemy);
@@ -136,8 +138,12 @@ public partial class StageEnemyRoster : Node
         enemy.ShieldDeflected -= binding.OnShieldDeflected;
         enemy.ProjectileFired -= binding.OnProjectileFired;
         enemy.OverloadPulseTriggered -= binding.OnOverloadPulseTriggered;
+        AttackCoordinator.Release(enemy);
         if (GodotObject.IsInstanceValid(enemy))
+        {
             enemy.TreeExiting -= binding.OnTreeExiting;
+            enemy.BindAttackCoordinator(null);
+        }
 
         UpdatePrimaryBoss();
         EnemyUnregistered?.Invoke(enemy);
@@ -146,10 +152,13 @@ public partial class StageEnemyRoster : Node
 
     public void Clear()
     {
-        if (_enemies.Count == 0) return;
-        EnemyController[] snapshot = _enemies.ToArray();
-        for (int i = 0; i < snapshot.Length; i++)
-            Unregister(snapshot[i]);
+        if (_enemies.Count > 0)
+        {
+            EnemyController[] snapshot = _enemies.ToArray();
+            for (int i = 0; i < snapshot.Length; i++)
+                Unregister(snapshot[i]);
+        }
+        AttackCoordinator.Clear();
     }
 
     public override void _ExitTree()

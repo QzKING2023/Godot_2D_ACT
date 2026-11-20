@@ -130,6 +130,13 @@ public static class FullChainSmoke
             return false;
         }
 
+        if (arena.GetNodeOrNull<StageEnemyRoster>("EnemyRoster") is { } roster &&
+            roster.AttackCoordinator.TotalActiveCount != 0)
+        {
+            failureReason = $"AttackCoordinator leaked active tokens after R reset (count={roster.AttackCoordinator.TotalActiveCount})";
+            return false;
+        }
+
         failureReason = null;
         return true;
     }

@@ -23,6 +23,8 @@ public partial class TrainingTarget : EnemyController
         ChaseSpeed = 0f;
     }
 
+    public override bool UsesEncounterAttackToken => false;
+
     protected override EnemyVisual CreateVisual()
         => new TrainingTargetVisual { Name = "Visual" };
 
@@ -55,11 +57,8 @@ public partial class TrainingTarget : EnemyController
         bool inRange = distance <= engageRange &&
                        Mathf.Abs(player.GlobalPosition.Y - GlobalPosition.Y) < 110f;
 
-        if (inRange && CanStartAttack)
-        {
-            BeginTelegraph();
+        if (inRange && CanStartAttack && TryBeginTelegraph())
             return;
-        }
 
         SetState(EnemyState.Idle, "training pillar holding");
     }
