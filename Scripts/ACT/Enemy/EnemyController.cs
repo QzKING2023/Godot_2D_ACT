@@ -51,8 +51,8 @@ public partial class EnemyController : CharacterBody2D
         : 0f;
 
     /// <summary>Read-only presentation cues for visual/audio layers (never mutate combat state).</summary>
-    public event Action<BossTelegraphCue>? TelegraphStarted;
-    public event Action<BossStrikeCue>? StrikeActivated;
+    public event Action<EnemyTelegraphCue>? TelegraphStarted;
+    public event Action<EnemyStrikeCue>? StrikeActivated;
     public event Action<EnemyDamagedCue>? Damaged;
 
     public virtual bool IsInvulnerable => false;
@@ -187,7 +187,7 @@ public partial class EnemyController : CharacterBody2D
         _telegraphStartedAt = now;
         _stateEndsAt = now + CurrentAttack.TelegraphSeconds;
         SetState(EnemyState.Telegraph, $"{CurrentAttack.Name} telegraph: {CurrentAttack.ResponseHint}");
-        TelegraphStarted?.Invoke(new BossTelegraphCue(CurrentAttack, GlobalPosition, now));
+        TelegraphStarted?.Invoke(new EnemyTelegraphCue(CurrentAttack, GlobalPosition, now));
         GD.Print($"[Enemy] telegraph {CurrentAttack.Name} | response {CurrentAttack.ResponseHint} | " +
                  $"telegraph {CurrentAttack.TelegraphSeconds:0.00}s active {CurrentAttack.ActiveSeconds:0.00}s " +
                  $"recovery {CurrentAttack.RecoverySeconds:0.00}s damage {CurrentAttack.Damage:0}");
@@ -199,7 +199,7 @@ public partial class EnemyController : CharacterBody2D
         _attackFlashUntil = Now + CurrentAttack.ActiveSeconds;
         _stateEndsAt = Now + CurrentAttack.ActiveSeconds;
         SetState(EnemyState.Strike, $"{CurrentAttack.Name} active");
-        StrikeActivated?.Invoke(new BossStrikeCue(CurrentAttack, GlobalPosition));
+        StrikeActivated?.Invoke(new EnemyStrikeCue(CurrentAttack, GlobalPosition));
         QueueRedraw();
     }
 
@@ -232,15 +232,15 @@ public partial class EnemyController : CharacterBody2D
         => _player.GlobalPosition.DistanceTo(GlobalPosition) <= range &&
            Mathf.Abs(_player.GlobalPosition.Y - GlobalPosition.Y) < 110f;
 
-    public void TakeDamage(float damage)
+    public bool TakeDamage(float damage)
     {
         if (State == EnemyState.Spawn)
         {
             GD.Print("[Enemy] damage ignored during spawn");
-            return;
+            return false;
         }
-        if (State is EnemyState.Dead or EnemyState.Victory) return;
-        if (IsInvulnerable) { GD.Print("[Enemy] damage ignored (invulnerable)"); return; }
+        if (State is EnemyState.Dead or EnemyState.Victory) return false;
+        if (IsInvulnerable) { GD.Print("[Enemy] damage ignored (invulnerable)"); return false; }
 
         Hp -= damage;
         if (Hp <= 0)
@@ -249,10 +249,11 @@ public partial class EnemyController : CharacterBody2D
             _stateEndsAt = Now + Windows.VictoryDelaySeconds;
             SetState(EnemyState.Dead, "destroyed");
             Damaged?.Invoke(new EnemyDamagedCue(damage, Hp, MaxHp, Defeated: true, GlobalPosition));
-            return;
+            return true;
         }
         EnterHitstun($"took {damage:0} damage");
         Damaged?.Invoke(new EnemyDamagedCue(damage, Hp, MaxHp, Defeated: false, GlobalPosition));
+        return true;
     }
 
     private void EnterHitstun(string reason)

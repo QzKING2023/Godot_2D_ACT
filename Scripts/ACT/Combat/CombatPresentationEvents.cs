@@ -35,13 +35,13 @@ public readonly record struct PlayerDefenseCue(
     Vector2 Position);
 
 /// <summary>Read-only presentation cue emitted when an enemy begins an attack telegraph.</summary>
-public readonly record struct BossTelegraphCue(
+public readonly record struct EnemyTelegraphCue(
     BossAttackDefinition Attack,
     Vector2 Origin,
     float StartedAtRealSec);
 
 /// <summary>Read-only presentation cue emitted when an enemy telegraph transitions into its active strike.</summary>
-public readonly record struct BossStrikeCue(
+public readonly record struct EnemyStrikeCue(
     BossAttackDefinition Attack,
     Vector2 Origin);
 

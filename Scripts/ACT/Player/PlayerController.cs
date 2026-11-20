@@ -363,8 +363,9 @@ public partial class PlayerController : CharacterBody2D
             _swingHit.Add(enemy);
             float dmg = State == PlayerState.Skill ? SkillDamage : AttackDamage;
             bool isSkill = State == PlayerState.Skill;
-            enemy.TakeDamage(dmg);
-            AttackLanded?.Invoke(new PlayerHitCue(isSkill, dmg, enemy.GlobalPosition));
+            bool applied = enemy.TakeDamage(dmg);
+            if (applied)
+                AttackLanded?.Invoke(new PlayerHitCue(isSkill, dmg, enemy.GlobalPosition));
             EmitFeedback($"{(isSkill ? "Skill" : "Attack")} hit enemy (-{dmg:0})");
         }
     }

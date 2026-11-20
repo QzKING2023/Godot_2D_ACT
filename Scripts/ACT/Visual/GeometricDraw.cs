@@ -94,34 +94,32 @@ public static class GeometricDraw
 
     public static void AngledBar(
         CanvasItem canvas,
-        Vector2 position,
-        float width,
-        float height,
+        Rect2 rect,
         float fraction,
         Color background,
         Color fill,
         float skew = 8f)
     {
         float clamped = Mathf.Clamp(fraction, 0f, 1f);
-        var bg = new[]
-        {
-            position,
-            position + new Vector2(width, 0f),
-            position + new Vector2(width - skew, height),
-            position + new Vector2(-skew, height)
-        };
-        FillPolygon(canvas, bg, background);
+        FillSkewedRect(canvas, rect, skew, background);
 
         if (clamped <= 0.005f) return;
 
-        float fillWidth = width * clamped;
-        var fg = new[]
+        var fillRect = new Rect2(rect.Position, new Vector2(rect.Size.X * clamped, rect.Size.Y));
+        FillSkewedRect(canvas, fillRect, skew, fill);
+    }
+
+    private static void FillSkewedRect(CanvasItem canvas, Rect2 rect, float skew, Color color)
+    {
+        Vector2 pos = rect.Position;
+        float w = rect.Size.X;
+        float h = rect.Size.Y;
+        FillPolygon(canvas, new[]
         {
-            position,
-            position + new Vector2(fillWidth, 0f),
-            position + new Vector2(fillWidth - skew, height),
-            position + new Vector2(-skew, height)
-        };
-        FillPolygon(canvas, fg, fill);
+            pos,
+            pos + new Vector2(w, 0f),
+            pos + new Vector2(w - skew, h),
+            pos + new Vector2(-skew, h)
+        }, color);
     }
 }
