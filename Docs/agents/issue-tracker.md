@@ -14,6 +14,12 @@
 
 在仓库克隆目录中运行时，`gh` 会根据 `git remote -v` 自动判断仓库。
 
+### Windows PowerShell 5.1 使用提示
+
+- 读取 Issue / PR 时始终附加 `--json ...`，确保非交互式管道下稳定输出。
+- 传入含空格、反引号或引号的 `--body` / `--comment` 时，优先使用单引号字符串或通过 `--body-file -` 从标准输入传入。
+- 串联多条命令使用 `;` 配合 `$LASTEXITCODE` 检查（PowerShell 5.1 不支持 `&&`）。
+
 ## Pull Request 是否作为分流入口
 
 **PR 不作为请求入口。** 如果本仓库未来把外部 PR 当作功能请求，可以将此项改为 `yes`，`/triage` 会读取这个设置。
