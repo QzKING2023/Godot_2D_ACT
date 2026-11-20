@@ -62,7 +62,14 @@ public partial class SmokeTest : Node
         if (_resetProbePending)
         {
             _resetProbePending = false;
-            GD.Print("[Smoke] PASS R reset (new arena instance started)");
+            SetAction("reset_round", false);
+            if (!FullChainSmoke.CheckPostResetHygiene(GetParent(), Player, Enemy, TimeSlow, out string? resetFailure))
+            {
+                GD.PrintErr($"[Smoke] FAIL R reset hygiene: {resetFailure}");
+                GetTree().Quit(1);
+                return;
+            }
+            GD.Print("[Smoke] PASS R reset (new arena instance started, TimeScale=1.0)");
             GetTree().Quit(0);
             return;
         }
@@ -70,6 +77,7 @@ public partial class SmokeTest : Node
         SubscribePresentationEvents();
         CheckDisplayAndFontContract();
         CheckGeometricPaletteAndPrimitives();
+        FullChainSmoke.Check(GetParent(), Fail);
         RuinStageSmoke.Check(GetParent(), Fail);
         CheckAttackContractDifferences();
         PresentationVisualSmoke.Check(this, Player, Enemy, TimeSlow, Fail);
@@ -391,6 +399,7 @@ public partial class SmokeTest : Node
                     {
                         GD.Print("[Smoke] PASS player death state");
                         CheckPresentationEventsObserved();
+                        FullChainSmoke.CheckExitHygiene(GetParent(), TimeSlow, Fail);
                         if (_failures.Count > 0)
                         {
                             Finish();

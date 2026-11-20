@@ -72,7 +72,7 @@ public partial class TestArena : Node2D
         CombatAudioController.Attach(this, _player, _enemy, _timeSlow);
         LogInputAudit();
 
-        if (OS.GetEnvironment("ACT_SMOKE") == "1")
+        if (OS.GetEnvironment("ACT_SMOKE") == "1" && GetParent() == GetTree().Root)
         {
             AddChild(new SmokeTest { Name = "SmokeTest", Player = _player, Enemy = _enemy, TimeSlow = _timeSlow });
         }
