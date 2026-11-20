@@ -7,6 +7,7 @@ using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.HUD;
 using ACTSpike.ACT.Input;
 using ACTSpike.ACT.Player;
+using ACTSpike.ACT.Visual;
 
 namespace ACTSpike.ACT.Arena;
 
@@ -57,6 +58,9 @@ public partial class TestArena : Node2D
 
         var camera = new Camera2D { Name = "RouteCamera", Position = new Vector2(0, -80), LimitLeft = 0, LimitTop = 0, LimitRight = (int)ArenaWidth, LimitBottom = 720, PositionSmoothingEnabled = true, PositionSmoothingSpeed = 8f };
         _player.AddChild(camera);
+
+        _player.Visual.BindTimeSlow(_timeSlow);
+        CombatFeedbackLayer.Attach(this, _player, _enemy, _timeSlow, camera);
 
         BuildHud();
         WireFeedback();

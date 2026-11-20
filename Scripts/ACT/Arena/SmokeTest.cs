@@ -69,6 +69,7 @@ public partial class SmokeTest : Node
         CheckDisplayAndFontContract();
         CheckGeometricPaletteAndPrimitives();
         CheckAttackContractDifferences();
+        PresentationVisualSmoke.Check(this, Player, Enemy, TimeSlow, Fail);
         GD.Print("[Smoke] running (ACT_SMOKE=1)");
     }
 
