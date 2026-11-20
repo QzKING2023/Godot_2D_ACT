@@ -483,11 +483,11 @@ public static class HudFlowSmoke
             }
         }
 
-        // 2. TutorialStage and FormalStage wire F3 logs (CombatFeedback/StateChanged) & TimeResourceRefund + EnemyDisplayName.
-        foreach ((string path, string expectedEnemyName) in new[]
+        // 2. TutorialStage and FormalStage wire F3 logs (CombatFeedback/StateChanged), TimeResourceRefund, and tiered HUD (no boss bar on non-boss stages).
+        foreach (string path in new[]
         {
-            ("res://Scenes/Tutorial/Combat.tscn", "遗迹守卫 · 演练靶标"),
-            ("res://Scenes/FormalEncounter.tscn", "遗迹守卫 · 前哨")
+            "res://Scenes/Tutorial/Combat.tscn",
+            "res://Scenes/FormalEncounter.tscn"
         })
         {
             var packed = GD.Load<PackedScene>(path);
@@ -510,8 +510,8 @@ public static class HudFlowSmoke
                     continue;
                 }
 
-                if (hud.EnemyDisplayName != expectedEnemyName)
-                    failures.Add($"{path} EnemyDisplayName expected '{expectedEnemyName}', got '{hud.EnemyDisplayName}'");
+                if (hud.IsBossHealthBarVisible)
+                    failures.Add($"{path} non-boss stage unexpectedly displayed bottom boss health bar");
 
                 timeSlow.Reset();
                 if (hud.LastTimeLine != "time resource reset")

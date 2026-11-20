@@ -49,6 +49,13 @@ public partial class EnemyVisual : Node2D
 
     public int Facing => _facing;
     public bool IsPlayerBound => _player is not null;
+    public bool IsTimeSlowBound => _timeSlow is not null;
+    public bool IsVisualFrozen => _visualFrozen;
+    public bool ShouldDrawOverheadHealthBar => _enemy is not null && _enemy.ShowsOverheadHealthBar;
+
+    protected EnemyController? BoundEnemy => _enemy;
+    protected float RealElapsedSec => _realElapsedSec;
+    protected bool IsHitFlashing => _hitFlash > 0f;
 
     public override void _Ready()
     {
@@ -99,12 +106,49 @@ public partial class EnemyVisual : Node2D
         QueueRedraw();
     }
 
+    private const float OverheadBarWidth = 58f;
+    private const float OverheadBarHeight = 6f;
+    private const float OverheadBarSkew = 3f;
+
+    protected virtual float OverheadHealthBarOffsetY => -68f;
+
     public override void _Draw()
     {
         if (_enemy is null) return;
 
         DrawTelegraphOrStrike();
+        DrawBody();
+        if (ShouldDrawOverheadHealthBar)
+            DrawOverheadHealthBar();
+    }
+
+    protected virtual void DrawBody()
+    {
         DrawMonolithBody();
+    }
+
+    protected virtual void DrawOverheadHealthBar()
+    {
+        EnemyController e = _enemy!;
+        float fraction = e.MaxHp > 0f ? Mathf.Clamp(e.Hp / e.MaxHp, 0f, 1f) : 0f;
+        var barRect = new Rect2(
+            -OverheadBarWidth * 0.5f,
+            OverheadHealthBarOffsetY,
+            OverheadBarWidth,
+            OverheadBarHeight);
+
+        GeometricDraw.AngledBar(
+            this,
+            barRect,
+            fraction,
+            RuinGeometryPalette.HudPanelDark,
+            RuinGeometryPalette.HudBossHp,
+            OverheadBarSkew);
+        GeometricDraw.StrokePolygon(
+            this,
+            GeometricDraw.BuildSkewedRect(barRect, OverheadBarSkew),
+            RuinGeometryPalette.PlatformTopLit with { A = 0.68f },
+            width: 1.2f);
     }
 
     public override void _ExitTree()

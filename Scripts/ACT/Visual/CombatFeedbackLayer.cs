@@ -40,10 +40,13 @@ public partial class CombatFeedbackLayer : Node2D
 
     private readonly List<BurstParticle> _particles = new();
     private readonly List<RingPulse> _rings = new();
+    private readonly Dictionary<EnemyController, float> _enemyHitstops = new();
+    private readonly List<EnemyController> _expiredEnemyHitstops = new();
     private readonly RandomNumberGenerator _rng = new();
 
     private PlayerController? _player;
-    private EnemyController? _enemy;
+    private StageEnemyRoster? _roster;
+    private StageEnemyRoster? _ownedRoster;
     private TimeSlowManager? _timeSlow;
     private Camera2D? _camera;
     private CanvasLayer? _timeSlowLayer;
@@ -51,7 +54,7 @@ public partial class CombatFeedbackLayer : Node2D
 
     private float _lastRealSec = -1f;
     private float _shakeIntensity;
-    private float _hitstopRemainingSec;
+    private float _playerHitstopRemainingSec;
     private float _timeSlowBlend;
     private bool _smokeMode;
     private bool _boundSignals;
@@ -60,8 +63,32 @@ public partial class CombatFeedbackLayer : Node2D
     public int ActiveRingCount => _rings.Count;
     public float ShakeIntensity => _shakeIntensity;
     public float TimeSlowBlend => _timeSlowBlend;
-    public bool IsHitstopActive => _hitstopRemainingSec > 0f;
+    public bool IsHitstopActive => _playerHitstopRemainingSec > 0f || _enemyHitstops.Count > 0;
+    public bool AllowVisualHitstopInSmoke { get; set; }
+    public StageEnemyRoster? Roster => _roster;
     public CanvasLayer TimeSlowFieldLayer => EnsureTimeSlowOverlay();
+
+    public bool IsEnemyHitstopActive(EnemyController enemy)
+        => enemy is not null && _enemyHitstops.TryGetValue(enemy, out float remaining) && remaining > 0f;
+
+    public static CombatFeedbackLayer AttachRoster(
+        Node2D stage,
+        PlayerController player,
+        StageEnemyRoster roster,
+        TimeSlowManager timeSlow,
+        Camera2D camera)
+    {
+        ArgumentNullException.ThrowIfNull(stage);
+        ArgumentNullException.ThrowIfNull(player);
+        ArgumentNullException.ThrowIfNull(roster);
+        ArgumentNullException.ThrowIfNull(timeSlow);
+        ArgumentNullException.ThrowIfNull(camera);
+
+        var layer = new CombatFeedbackLayer { Name = "CombatFeedbackLayer" };
+        layer.Initialize(player, roster, ownedRoster: null, timeSlow, camera);
+        stage.AddChild(layer);
+        return layer;
+    }
 
     public static CombatFeedbackLayer Attach(
         Node2D stage,
@@ -70,8 +97,18 @@ public partial class CombatFeedbackLayer : Node2D
         TimeSlowManager timeSlow,
         Camera2D camera)
     {
+        ArgumentNullException.ThrowIfNull(stage);
+        ArgumentNullException.ThrowIfNull(player);
+        ArgumentNullException.ThrowIfNull(timeSlow);
+        ArgumentNullException.ThrowIfNull(camera);
+
         var layer = new CombatFeedbackLayer { Name = "CombatFeedbackLayer" };
-        layer.Initialize(player, enemy, timeSlow, camera);
+        var ownedRoster = new StageEnemyRoster { Name = "OwnedEnemyRoster" };
+        ownedRoster.BindTimeSlow(timeSlow);
+        if (enemy is not null)
+            ownedRoster.Register(enemy);
+        layer.AddChild(ownedRoster);
+        layer.Initialize(player, ownedRoster, ownedRoster, timeSlow, camera);
         stage.AddChild(layer);
         return layer;
     }
@@ -92,12 +129,13 @@ public partial class CombatFeedbackLayer : Node2D
         _lastRealSec = nowReal;
 
         UpdateTimeSlowField(realDt);
+        UpdateEnemyHitstops(realDt);
 
-        if (_hitstopRemainingSec > 0f)
+        if (_playerHitstopRemainingSec > 0f)
         {
-            _hitstopRemainingSec = Mathf.Max(0f, _hitstopRemainingSec - realDt);
-            if (_hitstopRemainingSec <= 0f)
-                ApplyVisualFreeze(false);
+            _playerHitstopRemainingSec = Mathf.Max(0f, _playerHitstopRemainingSec - realDt);
+            if (_playerHitstopRemainingSec <= 0f)
+                ApplyPlayerVisualFreeze(false);
         }
         else
         {
@@ -166,18 +204,20 @@ public partial class CombatFeedbackLayer : Node2D
 
     private void Initialize(
         PlayerController player,
-        EnemyController? enemy,
+        StageEnemyRoster roster,
+        StageEnemyRoster? ownedRoster,
         TimeSlowManager timeSlow,
         Camera2D camera)
     {
         _player = player;
-        _enemy = enemy;
+        _roster = roster;
+        _ownedRoster = ownedRoster;
         _timeSlow = timeSlow;
         _camera = camera;
         _smokeMode = OS.GetEnvironment("ACT_SMOKE") == "1";
 
         player.Visual?.BindTimeSlow(timeSlow);
-        enemy?.Visual?.BindTimeSlow(timeSlow);
+        roster.BindTimeSlow(timeSlow);
         EnsureTimeSlowOverlay();
     }
 
@@ -217,16 +257,17 @@ public partial class CombatFeedbackLayer : Node2D
             _player.Landed += OnPlayerLanded;
         }
 
-        if (_enemy is not null)
+        if (_roster is not null)
         {
-            _enemy.StrikeActivated += OnEnemyStrikeActivated;
-            _enemy.Damaged += OnEnemyDamaged;
+            _roster.EnemyStrikeActivated += OnRosterEnemyStrikeActivated;
+            _roster.EnemyDamaged += OnRosterEnemyDamaged;
+            _roster.EnemyUnregistered += OnRosterEnemyUnregistered;
         }
     }
 
     private void Cleanup()
     {
-        ApplyVisualFreeze(false);
+        ClearAllVisualFreezes();
 
         if (_camera is not null && GodotObject.IsInstanceValid(_camera))
             _camera.Offset = Vector2.Zero;
@@ -242,12 +283,16 @@ public partial class CombatFeedbackLayer : Node2D
                 _player.DefenseResolved -= OnPlayerDefenseResolved;
                 _player.Landed -= OnPlayerLanded;
             }
-            if (_enemy is not null && GodotObject.IsInstanceValid(_enemy))
+            if (_roster is not null && GodotObject.IsInstanceValid(_roster))
             {
-                _enemy.StrikeActivated -= OnEnemyStrikeActivated;
-                _enemy.Damaged -= OnEnemyDamaged;
+                _roster.EnemyStrikeActivated -= OnRosterEnemyStrikeActivated;
+                _roster.EnemyDamaged -= OnRosterEnemyDamaged;
+                _roster.EnemyUnregistered -= OnRosterEnemyUnregistered;
             }
         }
+
+        if (_ownedRoster is not null && GodotObject.IsInstanceValid(_ownedRoster))
+            _ownedRoster.Clear();
     }
 
     private void UpdateTimeSlowField(float realDt)
@@ -258,9 +303,6 @@ public partial class CombatFeedbackLayer : Node2D
         if (_timeSlowOverlay is null || !GodotObject.IsInstanceValid(_timeSlowOverlay))
             return;
 
-        Vector2 vp = GetViewport()?.GetVisibleRect().Size ?? new Vector2(1280f, 720f);
-        if (vp.X > 1f && vp.Y > 1f)
-            _timeSlowOverlay.Size = vp;
         _timeSlowOverlay.Blend = _timeSlowBlend;
         _timeSlowOverlay.QueueRedraw();
     }
@@ -302,7 +344,7 @@ public partial class CombatFeedbackLayer : Node2D
             _camera.Offset = new Vector2(
                 _rng.RandfRange(-_shakeIntensity, _shakeIntensity),
                 _rng.RandfRange(-_shakeIntensity, _shakeIntensity));
-            if (_hitstopRemainingSec <= 0f)
+            if (_playerHitstopRemainingSec <= 0f)
                 _shakeIntensity = Mathf.MoveToward(_shakeIntensity, 0f, realDt * 42f);
         }
         else
@@ -312,25 +354,76 @@ public partial class CombatFeedbackLayer : Node2D
         }
     }
 
+    private bool HitstopEnabled => !_smokeMode || AllowVisualHitstopInSmoke;
+
     private void TriggerShake(float intensity)
     {
         _shakeIntensity = Mathf.Max(_shakeIntensity, intensity);
     }
 
-    private void TriggerHitstop(float durationSeconds)
+    private void TriggerPlayerHitstop(float durationSeconds)
     {
-        // Visual-only freeze (~50ms); never touch Engine.TimeScale and auto-skip in ACT_SMOKE=1.
-        if (_smokeMode) return;
-        _hitstopRemainingSec = Mathf.Max(_hitstopRemainingSec, durationSeconds);
-        ApplyVisualFreeze(true);
+        // Visual-only freeze (~50ms); never touch Engine.TimeScale and auto-skip in ACT_SMOKE=1 unless enabled for a probe.
+        if (!HitstopEnabled) return;
+        _playerHitstopRemainingSec = Mathf.Max(_playerHitstopRemainingSec, durationSeconds);
+        ApplyPlayerVisualFreeze(true);
     }
 
-    private void ApplyVisualFreeze(bool frozen)
+    private void TriggerEnemyHitstop(EnemyController enemy, float durationSeconds)
+    {
+        // Per-enemy visual-only freeze; never touches Engine.TimeScale or unrelated enemies.
+        if (!HitstopEnabled || !GodotObject.IsInstanceValid(enemy)) return;
+        _enemyHitstops[enemy] = _enemyHitstops.TryGetValue(enemy, out float current)
+            ? Mathf.Max(current, durationSeconds)
+            : durationSeconds;
+        enemy.SetVisualFreeze(true);
+    }
+
+    private void UpdateEnemyHitstops(float realDt)
+    {
+        if (_enemyHitstops.Count == 0) return;
+
+        _expiredEnemyHitstops.Clear();
+        foreach (KeyValuePair<EnemyController, float> pair in _enemyHitstops)
+        {
+            EnemyController enemy = pair.Key;
+            float next = pair.Value - realDt;
+            if (!GodotObject.IsInstanceValid(enemy) || next <= 0f)
+                _expiredEnemyHitstops.Add(enemy);
+            else
+                _enemyHitstops[enemy] = next;
+        }
+
+        for (int i = 0; i < _expiredEnemyHitstops.Count; i++)
+        {
+            EnemyController enemy = _expiredEnemyHitstops[i];
+            _enemyHitstops.Remove(enemy);
+            if (GodotObject.IsInstanceValid(enemy))
+                enemy.SetVisualFreeze(false);
+        }
+        _expiredEnemyHitstops.Clear();
+    }
+
+    private void ApplyPlayerVisualFreeze(bool frozen)
     {
         if (_player is not null && GodotObject.IsInstanceValid(_player))
             _player.Visual?.SetVisualFreeze(frozen);
-        if (_enemy is not null && GodotObject.IsInstanceValid(_enemy))
-            _enemy.Visual?.SetVisualFreeze(frozen);
+    }
+
+    private void ClearAllVisualFreezes()
+    {
+        _playerHitstopRemainingSec = 0f;
+        ApplyPlayerVisualFreeze(false);
+
+        if (_enemyHitstops.Count > 0)
+        {
+            foreach (EnemyController enemy in _enemyHitstops.Keys)
+            {
+                if (GodotObject.IsInstanceValid(enemy))
+                    enemy.SetVisualFreeze(false);
+            }
+            _enemyHitstops.Clear();
+        }
     }
 
     private void SpawnBurst(Vector2 origin, int count, Color tint, float maxSpeed, ParticleShape shape)
@@ -376,7 +469,7 @@ public partial class CombatFeedbackLayer : Node2D
 
     private void OnPlayerAttackLanded(PlayerHitCue cue)
     {
-        TriggerHitstop(0.05f);
+        TriggerPlayerHitstop(0.05f);
         TriggerShake(cue.IsSkill ? 7f : 5f);
         SpawnRing(cue.HitPosition, 10f, cue.IsSkill ? 78f : 62f, 0.24f, RuinGeometryPalette.PlayerBlade, 3.5f);
         SpawnBurst(cue.HitPosition, 6, Colors.White, 240f, ParticleShape.Spark);
@@ -399,7 +492,7 @@ public partial class CombatFeedbackLayer : Node2D
         {
             case DefenseResult.PerfectBlocked:
             {
-                TriggerHitstop(0.055f);
+                TriggerPlayerHitstop(0.055f);
                 TriggerShake(9f);
                 Vector2 blockPos = cue.Position + new Vector2(facing * 20f, 0f);
                 SpawnRing(blockPos, 12f, 95f, 0.34f, RuinGeometryPalette.PlayerBlade, 5f);
@@ -408,7 +501,7 @@ public partial class CombatFeedbackLayer : Node2D
             }
             case DefenseResult.PerfectDodged:
             {
-                TriggerHitstop(0.045f);
+                TriggerPlayerHitstop(0.045f);
                 TriggerShake(6f);
                 SpawnRing(cue.Position, 12f, 88f, 0.32f, RuinGeometryPalette.DodgeTeal, 4.5f);
                 SpawnBurst(cue.Position, 16, RuinGeometryPalette.DodgeTeal, 340f, ParticleShape.Spark);
@@ -425,7 +518,7 @@ public partial class CombatFeedbackLayer : Node2D
             case DefenseResult.Hit:
             case DefenseResult.Blocked when cue.GuardBroken:
             {
-                TriggerHitstop(0.05f);
+                TriggerPlayerHitstop(0.05f);
                 TriggerShake(10f);
                 SpawnRing(cue.Position, 14f, 82f, 0.30f, RuinGeometryPalette.HitCrimson, 4.5f);
                 SpawnBurst(cue.Position, 12, RuinGeometryPalette.HitCrimson, 280f, ParticleShape.Shard);
@@ -434,17 +527,19 @@ public partial class CombatFeedbackLayer : Node2D
         }
     }
 
-    private void OnEnemyStrikeActivated(EnemyStrikeCue cue)
+    private void OnRosterEnemyStrikeActivated(RosterEnemyStrikeCue rosterCue)
     {
+        EnemyStrikeCue cue = rosterCue.Cue;
         TriggerShake(8f);
         Color col = RuinGeometryPalette.ForTelegraph(cue.Attack.Kind);
         float endRadius = cue.Attack.Kind == BossAttackKind.DelayedArea ? cue.Attack.HazardRadius : 120f;
         SpawnRing(cue.Origin, 20f, endRadius, 0.28f, col, 4f);
     }
 
-    private void OnEnemyDamaged(EnemyDamagedCue cue)
+    private void OnRosterEnemyDamaged(RosterEnemyDamagedCue rosterCue)
     {
-        TriggerHitstop(cue.Defeated ? 0.065f : 0.05f);
+        EnemyDamagedCue cue = rosterCue.Cue;
+        TriggerEnemyHitstop(rosterCue.Enemy, cue.Defeated ? 0.065f : 0.05f);
         TriggerShake(cue.Defeated ? 11f : 6f);
         int facing = _player is not null && GodotObject.IsInstanceValid(_player) && _player.GlobalPosition.X >= cue.Position.X
             ? 1
@@ -457,6 +552,12 @@ public partial class CombatFeedbackLayer : Node2D
             ParticleShape.Shard);
         if (cue.Defeated)
             SpawnRing(cue.Position, 16f, 140f, 0.40f, RuinGeometryPalette.TelegraphNormal, 5f);
+    }
+
+    private void OnRosterEnemyUnregistered(EnemyController enemy)
+    {
+        if (_enemyHitstops.Remove(enemy) && GodotObject.IsInstanceValid(enemy))
+            enemy.SetVisualFreeze(false);
     }
 
     private sealed partial class TimeSlowOverlayControl : Control

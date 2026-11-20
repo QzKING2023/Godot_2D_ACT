@@ -54,6 +54,12 @@ public static class RuinGeometryPalette
     public static readonly Color BossDefeatedLit = new("4d5563");
     public static readonly Color BossDefeatedEye = new("5a6270");
 
+    // 演练靶标对称几何立柱切面
+    public static readonly Color TrainingPillarShadow = new("323a4a");
+    public static readonly Color TrainingPillarLit = new("6c7687");
+    public static readonly Color TrainingPillarTrim = new("c49b6c");
+    public static readonly Color TrainingPillarCoreIdle = new("93c5d6");
+
     // 三种「战斗前摇信号」
     public static readonly Color TelegraphNormal = new("ffd166");
     public static readonly Color TelegraphNormalFill = new(1f, 0.82f, 0.32f);

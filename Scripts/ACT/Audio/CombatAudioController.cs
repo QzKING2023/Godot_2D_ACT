@@ -17,7 +17,8 @@ public partial class CombatAudioController : Node
 
     private readonly List<AudioStreamPlayer> _pool = new();
     private PlayerController? _player;
-    private EnemyController? _enemy;
+    private StageEnemyRoster? _roster;
+    private StageEnemyRoster? _ownedRoster;
     private TimeSlowManager? _timeSlow;
     private float _volumeDb = -6f;
     private int _nextVoiceIndex;
@@ -42,6 +43,24 @@ public partial class CombatAudioController : Node
     public int PlayedCueCount { get; private set; }
     public CombatSfxId? LastCue { get; private set; }
 
+    /// <summary>Creates, binds to a multi-enemy roster, and attaches a CombatAudioController child to the stage parent.</summary>
+    public static CombatAudioController AttachRoster(
+        Node parent,
+        PlayerController player,
+        StageEnemyRoster roster,
+        TimeSlowManager timeSlow)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+        ArgumentNullException.ThrowIfNull(player);
+        ArgumentNullException.ThrowIfNull(roster);
+        ArgumentNullException.ThrowIfNull(timeSlow);
+
+        var controller = new CombatAudioController { Name = "CombatAudio" };
+        controller.BindRoster(player, roster, timeSlow);
+        parent.AddChild(controller);
+        return controller;
+    }
+
     /// <summary>Creates, binds, and attaches a CombatAudioController child to the stage parent.</summary>
     public static CombatAudioController Attach(
         Node parent,
@@ -59,6 +78,25 @@ public partial class CombatAudioController : Node
         return controller;
     }
 
+    /// <summary>Binds read-only event sources using a stage-level multi-enemy roster.</summary>
+    public void BindRoster(PlayerController player, StageEnemyRoster roster, TimeSlowManager timeSlow)
+    {
+        ArgumentNullException.ThrowIfNull(player);
+        ArgumentNullException.ThrowIfNull(roster);
+        ArgumentNullException.ThrowIfNull(timeSlow);
+
+        if (_subscribed)
+            Unsubscribe();
+        ReleaseOwnedRoster();
+
+        _player = player;
+        _roster = roster;
+        _timeSlow = timeSlow;
+
+        if (IsInsideTree())
+            Subscribe();
+    }
+
     /// <summary>Binds read-only event sources. Enemy may be null in traversal/non-combat stages.</summary>
     public void Bind(PlayerController player, EnemyController? enemy, TimeSlowManager timeSlow)
     {
@@ -67,9 +105,15 @@ public partial class CombatAudioController : Node
 
         if (_subscribed)
             Unsubscribe();
+        ReleaseOwnedRoster();
+
+        _ownedRoster = new StageEnemyRoster { Name = "OwnedEnemyRoster" };
+        if (enemy is not null)
+            _ownedRoster.Register(enemy);
+        AddChild(_ownedRoster);
 
         _player = player;
-        _enemy = enemy;
+        _roster = _ownedRoster;
         _timeSlow = timeSlow;
 
         if (IsInsideTree())
@@ -92,6 +136,7 @@ public partial class CombatAudioController : Node
     public override void _ExitTree()
     {
         Unsubscribe();
+        _ownedRoster?.Clear();
         StopPool();
     }
 
@@ -190,6 +235,19 @@ public partial class CombatAudioController : Node
         }
     }
 
+    private void ReleaseOwnedRoster()
+    {
+        if (_ownedRoster is null) return;
+        if (GodotObject.IsInstanceValid(_ownedRoster))
+        {
+            _ownedRoster.Clear();
+            if (_ownedRoster.GetParent() == this)
+                RemoveChild(_ownedRoster);
+            _ownedRoster.QueueFree();
+        }
+        _ownedRoster = null;
+    }
+
     private void Subscribe()
     {
         if (_subscribed || _player is null || _timeSlow is null) return;
@@ -198,8 +256,8 @@ public partial class CombatAudioController : Node
         _player.AttackLanded += OnAttackLanded;
         _player.DodgeStarted += OnDodgeStarted;
         _player.DefenseResolved += OnDefenseResolved;
-        if (_enemy is not null)
-            _enemy.TelegraphStarted += OnTelegraphStarted;
+        if (_roster is not null && GodotObject.IsInstanceValid(_roster))
+            _roster.EnemyTelegraphStarted += OnRosterTelegraphStarted;
         _timeSlow.ActiveChanged += OnTimeSlowActiveChanged;
 
         _subscribed = true;
@@ -209,16 +267,16 @@ public partial class CombatAudioController : Node
     {
         if (!_subscribed) return;
 
-        if (_player is not null)
+        if (_player is not null && GodotObject.IsInstanceValid(_player))
         {
             _player.AttackStarted -= OnAttackStarted;
             _player.AttackLanded -= OnAttackLanded;
             _player.DodgeStarted -= OnDodgeStarted;
             _player.DefenseResolved -= OnDefenseResolved;
         }
-        if (_enemy is not null)
-            _enemy.TelegraphStarted -= OnTelegraphStarted;
-        if (_timeSlow is not null)
+        if (_roster is not null && GodotObject.IsInstanceValid(_roster))
+            _roster.EnemyTelegraphStarted -= OnRosterTelegraphStarted;
+        if (_timeSlow is not null && GodotObject.IsInstanceValid(_timeSlow))
             _timeSlow.ActiveChanged -= OnTimeSlowActiveChanged;
 
         _subscribed = false;
@@ -239,8 +297,8 @@ public partial class CombatAudioController : Node
             Play(sfx);
     }
 
-    private void OnTelegraphStarted(EnemyTelegraphCue cue)
-        => Play(MapTelegraphCue(cue.Attack.Kind));
+    private void OnRosterTelegraphStarted(RosterEnemyTelegraphCue rosterCue)
+        => Play(MapTelegraphCue(rosterCue.Cue.Attack.Kind));
 
     private void OnTimeSlowActiveChanged(bool active)
         => Play(MapTimeSlowCue(active));

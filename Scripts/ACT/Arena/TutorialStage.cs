@@ -20,6 +20,7 @@ public partial class TutorialStage : Node2D
     private const float FloorY = 560f;
     private PlayerController _player = null!;
     private TimeSlowManager _timeSlow = null!;
+    private StageEnemyRoster _roster = null!;
     private CombatHud _hud = null!;
     private RuinEnvironmentLayer _environment = null!;
     private EnemyController? _enemy;
@@ -57,10 +58,12 @@ public partial class TutorialStage : Node2D
 
         if (Kind is TutorialKind.Attack or TutorialKind.Defense or TutorialKind.Dodge or TutorialKind.PerfectDefense or TutorialKind.Combat)
         {
-            _enemy = new EnemyController { Name = "TrainingTarget", Position = new Vector2(650, FloorY - 50), MaxHp = Kind == TutorialKind.Combat ? 3 : 99 };
+            _enemy = new TrainingTarget { Name = "TrainingTarget", Position = new Vector2(650, FloorY - 50), MaxHp = Kind == TutorialKind.Combat ? 3 : 99 };
             AddChild(_enemy);
             _enemy.Bind(_player, _player.Windows);
         }
+
+        _roster = StageRuntimeWiring.AttachEnemyRoster(this, _timeSlow, _enemy);
 
         _camera = new Camera2D { Position = new Vector2(380, -80), LimitLeft = 0, LimitTop = 0, LimitRight = 1280, LimitBottom = 720 };
         _player.AddChild(_camera);
@@ -69,11 +72,10 @@ public partial class TutorialStage : Node2D
         _hud = StageRuntimeWiring.MountStagePresentationAndHud(
             this,
             _player,
-            _enemy,
+            _roster,
             _timeSlow,
             _camera,
-            GoalText(),
-            "遗迹守卫 · 演练靶标");
+            GoalText());
 
         _player.AttackLanded += OnAttackLanded;
         _player.DefenseResolved += OnDefenseResolved;
@@ -97,7 +99,7 @@ public partial class TutorialStage : Node2D
             _blockCount++;
         if ((Kind == TutorialKind.Dodge || Kind == TutorialKind.PerfectDefense) && _player.State == PlayerState.Dodge && _lastState != PlayerState.Dodge)
             _dodgeCount++;
-        if (Kind == TutorialKind.Combat && _enemy is not null && _enemy.IsDefeated) _count = 1;
+        if (Kind == TutorialKind.Combat && _roster.AliveCount == 0) _count = 1;
         _lastState = _player.State;
         if (IsComplete()) Complete();
     }
@@ -154,6 +156,6 @@ public partial class TutorialStage : Node2D
             session.SavePlayerHp(_player.Hp);
         _hud.IsObjectiveCleared = true;
         _hud.ArenaMessage = "目标完成，正在进入下一场景";
-        GetTree().CreateTimer(0.35).Timeout += () => GetTree().ChangeSceneToFile(NextScene);
+        StageRuntimeWiring.ScheduleSceneChange(this, NextScene);
     }
 }

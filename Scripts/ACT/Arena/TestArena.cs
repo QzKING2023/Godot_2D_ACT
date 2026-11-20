@@ -28,6 +28,7 @@ public partial class TestArena : Node2D
     private CombatWindowConfig _windows = new();
     private TimeSlowConfig _timeSlowConfig = new();
     private TimeSlowManager _timeSlow = null!;
+    private StageEnemyRoster _roster = null!;
     private PlayerController _player = null!;
     private EnemyController _enemy = null!;
     private CombatHud _hud = null!;
@@ -53,9 +54,19 @@ public partial class TestArena : Node2D
         if (GetNodeOrNull<RunSession>("/root/RunSession") is { HasPlayerState: true } session)
             _player.RestoreHp(session.PlayerHp);
 
-        _enemy = new EnemyController { Name = "Boss", Position = EnemySpawn, MaxHp = 6f, Windows = _windows };
+        _enemy = new EnemyController
+        {
+            Name = "Boss",
+            DisplayName = "遗迹守卫 · 巨构核心",
+            IsBoss = true,
+            Position = EnemySpawn,
+            MaxHp = 6f,
+            Windows = _windows
+        };
         AddChild(_enemy);
         _enemy.Bind(_player, _windows);
+
+        _roster = StageRuntimeWiring.AttachEnemyRoster(this, _timeSlow, _enemy);
 
         var camera = new Camera2D { Name = "RouteCamera", Position = new Vector2(0, -80), LimitLeft = 0, LimitTop = 0, LimitRight = (int)ArenaWidth, LimitBottom = 720, PositionSmoothingEnabled = true, PositionSmoothingSpeed = 8f };
         _player.AddChild(camera);
@@ -64,7 +75,7 @@ public partial class TestArena : Node2D
         _hud = StageRuntimeWiring.MountStagePresentationAndHud(
             this,
             _player,
-            _enemy,
+            _roster,
             _timeSlow,
             camera,
             "向右穿过试炼门柱，迎战遗迹守卫",
@@ -100,7 +111,8 @@ public partial class TestArena : Node2D
             GD.Print("[Arena] boss boundary crossed");
         }
 
-        if (_bossArenaEntered && !_bossDefeatReported && _enemy.IsDefeated)
+        bool rosterCleared = _roster.AliveCount == 0;
+        if (_bossArenaEntered && !_bossDefeatReported && rosterCleared)
         {
             _bossDefeatReported = true;
             _environment.SetGateState(BossGateId, RuinGateState.Unlocked);
@@ -111,7 +123,7 @@ public partial class TestArena : Node2D
             GD.Print("[Arena] boss defeated; exit is now active");
         }
 
-        if (!_victory && !_transitioning && _bossArenaEntered && _enemy.IsDefeated &&
+        if (!_victory && !_transitioning && _bossArenaEntered && rosterCleared &&
             _player.GlobalPosition.X >= VictoryBoundaryX)
         {
             _victory = true;

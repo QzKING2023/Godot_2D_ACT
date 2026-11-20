@@ -19,6 +19,7 @@ public partial class FormalStage : Node2D
     [Export] public string NextScene { get; set; } = "res://Scenes/CoreLoop.tscn";
 
     private PlayerController _player = null!;
+    private StageEnemyRoster _roster = null!;
     private EnemyController? _enemy;
     private CombatHud _hud = null!;
     private TimeSlowManager _timeSlow = null!;
@@ -47,11 +48,21 @@ public partial class FormalStage : Node2D
         if (GetNodeOrNull<RunSession>("/root/RunSession") is { HasPlayerState: true } session)
             _player.RestoreHp(session.PlayerHp);
 
+        _roster = StageRuntimeWiring.AttachEnemyRoster(this, _timeSlow);
+
         if (HasEnemy)
         {
-            _enemy = new EnemyController { Name = "EncounterEnemy", Position = new Vector2(700, 510), MaxHp = 3 };
+            _enemy = new EnemyController
+            {
+                Name = "EncounterEnemy",
+                DisplayName = "遗迹敌兵",
+                IsBoss = false,
+                Position = new Vector2(700, 510),
+                MaxHp = 3
+            };
             AddChild(_enemy);
             _enemy.Bind(_player, _player.Windows);
+            _roster.Register(_enemy);
         }
 
         _camera = new Camera2D { Position = new Vector2(380, -80), LimitLeft = 0, LimitTop = 0, LimitRight = 1280, LimitBottom = 720 };
@@ -61,18 +72,17 @@ public partial class FormalStage : Node2D
         _hud = StageRuntimeWiring.MountStagePresentationAndHud(
             this,
             _player,
-            _enemy,
+            _roster,
             _timeSlow,
             _camera,
-            HasEnemy ? "清除遭遇敌人后前往右侧出口" : "沿路线向右移动，抵达出口进入下一场景",
-            "遗迹守卫 · 前哨");
+            HasEnemy ? "清除遭遇敌人后前往右侧出口" : "沿路线向右移动，抵达出口进入下一场景");
     }
 
     public override void _Process(double delta)
     {
         if (StageRuntimeWiring.HandleResetIfRequested(this, _timeSlow))
             return;
-        bool ready = !HasEnemy || _enemy is not null && _enemy.IsDefeated;
+        bool ready = !HasEnemy || _roster.AliveCount == 0;
         _environment.SetGateState(ExitGateId, ready ? RuinGateState.Unlocked : RuinGateState.Locked);
         if (ready && HasEnemy)
             _hud.IsObjectiveCleared = true;
@@ -83,7 +93,7 @@ public partial class FormalStage : Node2D
             GetNodeOrNull<RunSession>("/root/RunSession")?.SavePlayerHp(_player.Hp);
             _hud.IsObjectiveCleared = true;
             _hud.ArenaMessage = "出口已到达，正在进入下一场景";
-            GetTree().CreateTimer(0.35).Timeout += () => GetTree().ChangeSceneToFile(NextScene);
+            StageRuntimeWiring.ScheduleSceneChange(this, NextScene);
         }
     }
 }

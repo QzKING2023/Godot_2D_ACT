@@ -38,6 +38,8 @@ public partial class EnemyController : CharacterBody2D
     [Export] public float MaxHp { get; set; } = 6f;
     [Export] public float ChaseSpeed { get; set; } = 90f;
     [Export] public float Gravity { get; set; } = 1200f;
+    [Export] public bool IsBoss { get; set; }
+    [Export] public string DisplayName { get; set; } = "遗迹敌兵";
     public float Hp { get; private set; }
     public EnemyVisual Visual { get; private set; } = null!;
 
@@ -47,6 +49,7 @@ public partial class EnemyController : CharacterBody2D
     public BossAttackKind CurrentAttackKind { get; private set; } = BossAttackKind.Normal;
     public BossAttackDefinition CurrentAttack => DefinitionFor(CurrentAttackKind);
     public bool IsDefeated => State is EnemyState.Dead or EnemyState.Victory;
+    public bool ShowsOverheadHealthBar => !IsBoss && !IsDefeated;
     /// <summary>Normalized 0..1 telegraph progress computed from real timestamps.</summary>
     public float TelegraphProgress => State == EnemyState.Telegraph
         ? Mathf.Clamp((Now - _telegraphStartedAt) / Mathf.Max(0.001f, CurrentAttack.TelegraphSeconds), 0f, 1f)
@@ -60,14 +63,18 @@ public partial class EnemyController : CharacterBody2D
     public virtual bool IsInvulnerable => false;
     public virtual bool TryDefend(AttackResolution incoming) => false;
 
-    private PlayerController _player = null!;
+    private PlayerController? _player;
+    private TimeSlowManager? _timeSlow;
     private float _stateEndsAt;
     private float _telegraphStartedAt;
     private float _nextAttackAllowedAt;
     private bool _strikeResolved;
     private int _attackCycle;
 
-    private float Now => Time.GetTicksMsec() / 1000f;
+    protected PlayerController? TargetPlayer => _player;
+    protected float Now => Time.GetTicksMsec() / 1000f;
+    protected bool CanStartAttack => Now >= _nextAttackAllowedAt;
+    protected int AttackCycle => _attackCycle;
 
     public override void _Ready()
     {
@@ -91,10 +98,13 @@ public partial class EnemyController : CharacterBody2D
         hurtbox.AddToGroup("enemy_hurtbox");
         AddChild(hurtbox);
 
-        Visual = new EnemyVisual { Name = "Visual" };
+        Visual = CreateVisual();
         AddChild(Visual);
         Visual.Bind(this, _player);
+        Visual.BindTimeSlow(_timeSlow);
     }
+
+    protected virtual EnemyVisual CreateVisual() => new EnemyVisual { Name = "Visual" };
 
     public void Bind(PlayerController player, CombatWindowConfig windows)
     {
@@ -107,6 +117,15 @@ public partial class EnemyController : CharacterBody2D
         Visual?.Bind(this, player);
         SetState(EnemyState.Spawn, "spawn");
     }
+
+    public void BindTimeSlow(TimeSlowManager? timeSlow)
+    {
+        _timeSlow = timeSlow;
+        Visual?.BindTimeSlow(timeSlow);
+    }
+
+    /// <summary>Delegates local visual-only freeze to the enemy's visual node without touching Engine.TimeScale.</summary>
+    public void SetVisualFreeze(bool frozen) => Visual?.SetVisualFreeze(frozen);
 
     public override void _PhysicsProcess(double delta)
     {
@@ -153,8 +172,15 @@ public partial class EnemyController : CharacterBody2D
         MoveAndSlide();
     }
 
-    private void ThinkIdleOrChase()
+    protected virtual void ThinkIdleOrChase()
     {
+        if (_player is null || !GodotObject.IsInstanceValid(_player))
+        {
+            Velocity = Velocity with { X = 0 };
+            SetState(EnemyState.Idle, "no target");
+            return;
+        }
+
         float distance = _player.GlobalPosition.DistanceTo(GlobalPosition);
         bool inRange = distance <= Windows.EnemyAttackRange &&
                        Mathf.Abs(_player.GlobalPosition.Y - GlobalPosition.Y) < 90f;
@@ -180,9 +206,12 @@ public partial class EnemyController : CharacterBody2D
         }
     }
 
-    private void BeginTelegraph()
+    protected virtual BossAttackKind SelectNextAttackKind()
+        => (BossAttackKind)(_attackCycle % 3);
+
+    protected void BeginTelegraph()
     {
-        CurrentAttackKind = (BossAttackKind)(_attackCycle % 3);
+        CurrentAttackKind = SelectNextAttackKind();
         _attackCycle++;
         _strikeResolved = false;
         float now = Now;
@@ -205,6 +234,12 @@ public partial class EnemyController : CharacterBody2D
     private void ResolveStrike()
     {
         _strikeResolved = true;
+        if (_player is null || !GodotObject.IsInstanceValid(_player))
+        {
+            _nextAttackAllowedAt = Now + Windows.EnemyAttackCooldown;
+            return;
+        }
+
         bool inRange = CurrentAttack.Kind == BossAttackKind.DelayedArea
             ? _player.GlobalPosition.DistanceTo(GlobalPosition) <= CurrentAttack.HazardRadius
             : IsInAttackRange(CurrentAttack.Range);
@@ -228,7 +263,8 @@ public partial class EnemyController : CharacterBody2D
     }
 
     private bool IsInAttackRange(float range)
-        => _player.GlobalPosition.DistanceTo(GlobalPosition) <= range &&
+        => _player is not null &&
+           _player.GlobalPosition.DistanceTo(GlobalPosition) <= range &&
            Mathf.Abs(_player.GlobalPosition.Y - GlobalPosition.Y) < 110f;
 
     public bool TakeDamage(float damage)
@@ -290,7 +326,7 @@ public partial class EnemyController : CharacterBody2D
                 Windows.NormalAttackRecoverySeconds, Windows.NormalAttackRange, 0f)
         };
 
-    private void SetState(EnemyState next, string reason)
+    protected void SetState(EnemyState next, string reason)
     {
         if (State == next) return;
         GD.Print($"[Enemy] {State} -> {next} ({reason})");

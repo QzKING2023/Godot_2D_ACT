@@ -18,22 +18,39 @@ namespace ACTSpike.ACT.Arena;
 /// </summary>
 public static class StageRuntimeWiring
 {
+    public static StageEnemyRoster AttachEnemyRoster(
+        Node stage,
+        TimeSlowManager timeSlow,
+        params EnemyController?[] initialEnemies)
+    {
+        ArgumentNullException.ThrowIfNull(stage);
+        ArgumentNullException.ThrowIfNull(timeSlow);
+
+        var roster = new StageEnemyRoster { Name = "EnemyRoster" };
+        roster.BindTimeSlow(timeSlow);
+        stage.AddChild(roster);
+        roster.RegisterRange(initialEnemies);
+        return roster;
+    }
+
     public static CombatHud MountStagePresentationAndHud(
         Node2D stage,
         PlayerController player,
-        EnemyController? enemy,
+        StageEnemyRoster roster,
         TimeSlowManager timeSlow,
         Camera2D camera,
         string arenaMessage,
-        string enemyDisplayName = CombatHud.DefaultEnemyDisplayName)
+        string enemyDisplayName = "")
     {
         ArgumentNullException.ThrowIfNull(stage);
         ArgumentNullException.ThrowIfNull(player);
+        ArgumentNullException.ThrowIfNull(roster);
         ArgumentNullException.ThrowIfNull(timeSlow);
         ArgumentNullException.ThrowIfNull(camera);
 
         player.Visual?.BindTimeSlow(timeSlow);
-        CombatFeedbackLayer.Attach(stage, player, enemy, timeSlow, camera);
+        roster.BindTimeSlow(timeSlow);
+        CombatFeedbackLayer.AttachRoster(stage, player, roster, timeSlow, camera);
 
         var layer = new CanvasLayer { Name = "HUDLayer", Layer = 10 };
         var hud = new CombatHud
@@ -42,7 +59,7 @@ public static class StageRuntimeWiring
             Size = new Vector2(1280f, 720f),
             MouseFilter = Control.MouseFilterEnum.Ignore, // keep LMB attack working over the HUD
             Player = player,
-            Enemy = enemy,
+            EnemyRoster = roster,
             TimeSlow = timeSlow,
             ArenaMessage = arenaMessage,
             EnemyDisplayName = enemyDisplayName
@@ -52,8 +69,31 @@ public static class StageRuntimeWiring
 
         PauseMenuOverlay.Attach(stage, timeSlow);
         WireFeedback(player, timeSlow, hud);
-        CombatAudioController.Attach(stage, player, enemy, timeSlow);
+        CombatAudioController.AttachRoster(stage, player, roster, timeSlow);
         return hud;
+    }
+
+    public static CombatHud MountStagePresentationAndHud(
+        Node2D stage,
+        PlayerController player,
+        EnemyController? enemy,
+        TimeSlowManager timeSlow,
+        Camera2D camera,
+        string arenaMessage,
+        string enemyDisplayName = "")
+    {
+        ArgumentNullException.ThrowIfNull(stage);
+        ArgumentNullException.ThrowIfNull(timeSlow);
+
+        StageEnemyRoster roster = AttachEnemyRoster(stage, timeSlow, enemy);
+        return MountStagePresentationAndHud(
+            stage,
+            player,
+            roster,
+            timeSlow,
+            camera,
+            arenaMessage,
+            enemyDisplayName);
     }
 
     public static void WireFeedback(
@@ -86,5 +126,15 @@ public static class StageRuntimeWiring
         stage.GetNodeOrNull<RunSession>("/root/RunSession")?.Clear();
         stage.GetTree().ReloadCurrentScene();
         return true;
+    }
+
+    public static void ScheduleSceneChange(Node stage, string nextScene, double delaySeconds = 0.35)
+    {
+        ArgumentNullException.ThrowIfNull(stage);
+        stage.GetTree().CreateTimer(delaySeconds).Timeout += () =>
+        {
+            if (GodotObject.IsInstanceValid(stage) && stage.IsInsideTree())
+                stage.GetTree().ChangeSceneToFile(nextScene);
+        };
     }
 }

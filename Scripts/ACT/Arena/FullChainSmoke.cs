@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using ACTSpike.ACT.Audio;
 using ACTSpike.ACT.Combat;
+using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.HUD;
 using ACTSpike.ACT.Player;
 using ACTSpike.ACT.Visual;
@@ -279,6 +280,8 @@ public static class FullChainSmoke
             failures.Add($"{spec.Path} missing PlayerController");
         if (instance.GetNodeOrNull<TimeSlowManager>("TimeSlowManager") is null)
             failures.Add($"{spec.Path} missing TimeSlowManager");
+        if (instance.GetNodeOrNull<StageEnemyRoster>("EnemyRoster") is null)
+            failures.Add($"{spec.Path} missing StageEnemyRoster");
         if (instance.GetNodeOrNull<CombatFeedbackLayer>("CombatFeedbackLayer") is null)
             failures.Add($"{spec.Path} missing CombatFeedbackLayer");
         if (instance.GetNodeOrNull<CombatHud>("HUDLayer/HUD") is null)

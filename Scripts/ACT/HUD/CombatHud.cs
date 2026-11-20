@@ -53,14 +53,42 @@ public partial class CombatHud : Control
         }
     }
 
-    public const string DefaultEnemyDisplayName = "遗迹守卫 · 前哨";
+    public const string DefaultBossDisplayName = "遗迹守卫";
 
+    public StageEnemyRoster? EnemyRoster { get; set; }
     public EnemyController? Enemy { get; set; }
     public TimeSlowManager TimeSlow { get; set; } = null!;
     public string ArenaMessage { get; set; } = "向右穿过试炼门柱，迎战遗迹守卫";
-    public string EnemyDisplayName { get; set; } = DefaultEnemyDisplayName;
+    public string EnemyDisplayName { get; set; } = "";
     public bool IsObjectiveCleared { get; set; }
     public bool DebugOverlayVisible { get; set; }
+
+    public EnemyController? ActiveBoss
+    {
+        get
+        {
+            if (EnemyRoster is not null && GodotObject.IsInstanceValid(EnemyRoster))
+            {
+                EnemyController? boss = EnemyRoster.PrimaryBoss;
+                return boss is not null && GodotObject.IsInstanceValid(boss) && boss.IsBoss ? boss : null;
+            }
+            return Enemy is not null && GodotObject.IsInstanceValid(Enemy) && Enemy.IsBoss ? Enemy : null;
+        }
+    }
+
+    public bool IsBossHealthBarVisible => ActiveBoss is { IsDefeated: false };
+
+    public string ActiveBossDisplayName
+    {
+        get
+        {
+            EnemyController? boss = ActiveBoss;
+            if (boss is null) return "";
+            if (!string.IsNullOrWhiteSpace(EnemyDisplayName))
+                return EnemyDisplayName;
+            return string.IsNullOrWhiteSpace(boss.DisplayName) ? DefaultBossDisplayName : boss.DisplayName;
+        }
+    }
 
     public string CurrentEventBannerText => NowSeconds < _eventBannerExpiresAt ? _eventBannerText : "";
     public string LastCombatLine => _lastCombatLine;
@@ -198,12 +226,13 @@ public partial class CombatHud : Control
 
     private void DrawBossHealthBar(Font font)
     {
-        if (Enemy is null || Enemy.IsDefeated) return;
+        EnemyController? boss = ActiveBoss;
+        if (boss is null || boss.IsDefeated) return;
 
         float bx = (ViewportWidth - BossBarWidth) * 0.5f;
         float by = ViewportHeight - BossBarBottomMargin;
-        float fraction = Enemy.MaxHp > 0f ? Mathf.Clamp(Enemy.Hp / Enemy.MaxHp, 0f, 1f) : 0f;
-        string title = string.IsNullOrWhiteSpace(EnemyDisplayName) ? DefaultEnemyDisplayName : EnemyDisplayName;
+        float fraction = boss.MaxHp > 0f ? Mathf.Clamp(boss.Hp / boss.MaxHp, 0f, 1f) : 0f;
+        string title = ActiveBossDisplayName;
 
         DrawString(font, new Vector2(bx, by - 10f), title, HorizontalAlignment.Left, -1, 15, RuinGeometryPalette.HudBossTitle);
 
@@ -267,7 +296,26 @@ public partial class CombatHud : Control
         }
         y += lineStep;
 
-        if (Enemy is not null)
+        if (EnemyRoster is not null && GodotObject.IsInstanceValid(EnemyRoster) && EnemyRoster.Count > 0)
+        {
+            EnemyController? primary = EnemyRoster.PrimaryBoss ?? EnemyRoster.Enemies[0];
+            if (EnemyRoster.Count == 1 && primary is not null && GodotObject.IsInstanceValid(primary))
+            {
+                DrawString(font, new Vector2(x, y),
+                    $"Enemy [{primary.DisplayName}]: {primary.State}  HP {primary.Hp:0}/{primary.MaxHp:0}  Attack: {primary.CurrentAttack.Name}",
+                    HorizontalAlignment.Left, -1, 14, RuinGeometryPalette.HudDebugEnemy);
+            }
+            else
+            {
+                string focus = primary is not null && GodotObject.IsInstanceValid(primary)
+                    ? $"{primary.DisplayName} {primary.State} {primary.Hp:0}/{primary.MaxHp:0}"
+                    : "none";
+                DrawString(font, new Vector2(x, y),
+                    $"Enemies: {EnemyRoster.AliveCount}/{EnemyRoster.Count} alive  Focus: {focus}",
+                    HorizontalAlignment.Left, -1, 14, RuinGeometryPalette.HudDebugEnemy);
+            }
+        }
+        else if (Enemy is not null && GodotObject.IsInstanceValid(Enemy))
         {
             DrawString(font, new Vector2(x, y),
                 $"Enemy: {Enemy.State}  HP {Enemy.Hp:0}/{Enemy.MaxHp:0}  Attack: {Enemy.CurrentAttack.Name} ({Enemy.CurrentAttack.ResponseHint})",

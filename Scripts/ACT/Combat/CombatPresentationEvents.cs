@@ -52,3 +52,18 @@ public readonly record struct EnemyDamagedCue(
     float MaxHp,
     bool Defeated,
     Vector2 Position);
+
+/// <summary>Read-only presentation cue forwarded by StageEnemyRoster when any registered enemy begins a telegraph.</summary>
+public readonly record struct RosterEnemyTelegraphCue(
+    EnemyController Enemy,
+    EnemyTelegraphCue Cue);
+
+/// <summary>Read-only presentation cue forwarded by StageEnemyRoster when any registered enemy enters its active strike.</summary>
+public readonly record struct RosterEnemyStrikeCue(
+    EnemyController Enemy,
+    EnemyStrikeCue Cue);
+
+/// <summary>Read-only presentation cue forwarded by StageEnemyRoster when any registered enemy takes damage or is defeated.</summary>
+public readonly record struct RosterEnemyDamagedCue(
+    EnemyController Enemy,
+    EnemyDamagedCue Cue);
