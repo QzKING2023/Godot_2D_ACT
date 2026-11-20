@@ -6,6 +6,7 @@ using ACTSpike.ACT.Config;
 using ACTSpike.ACT.Core;
 using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.Input;
+using ACTSpike.ACT.Visual;
 
 namespace ACTSpike.ACT.Player;
 
@@ -37,6 +38,7 @@ public partial class PlayerController : CharacterBody2D
     public float Guard { get; private set; }
     public bool IsDown { get; private set; }
     public int Facing { get; private set; } = 1;
+    public PlayerVisual Visual { get; private set; } = null!;
 
     /// <summary>Short human-readable combat feedback line (HUD + debug log).</summary>
     public event Action<string>? CombatFeedback;
@@ -85,14 +87,9 @@ public partial class PlayerController : CharacterBody2D
         };
         AddChild(shape);
 
-        var visual = new ColorRect
-        {
-            Size = new Vector2(30, 46),
-            Position = new Vector2(-15, -23),
-            Color = new Color("55d6be"),
-            Name = "Visual" // replace with sprite/animation later
-        };
-        AddChild(visual);
+        Visual = new PlayerVisual { Name = "Visual" };
+        AddChild(Visual);
+        Visual.Bind(this);
 
         // Programmatic aim cue for the release-to-cast Y skill.
         _skillAimIndicator = new Node2D { Name = "SkillAimIndicator", ZIndex = 5, Visible = false };

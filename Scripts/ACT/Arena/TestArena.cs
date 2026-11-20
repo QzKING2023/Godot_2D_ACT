@@ -63,6 +63,9 @@ public partial class TestArena : Node2D
         _player.AddChild(camera);
         _environment.Camera = camera;
 
+        _player.Visual.BindTimeSlow(_timeSlow);
+        CombatFeedbackLayer.Attach(this, _player, _enemy, _timeSlow, camera);
+
         BuildHud();
         WireFeedback();
         CombatAudioController.Attach(this, _player, _enemy, _timeSlow);
