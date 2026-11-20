@@ -69,6 +69,7 @@ public partial class SmokeTest : Node
         SubscribePresentationEvents();
         CheckDisplayAndFontContract();
         CheckGeometricPaletteAndPrimitives();
+        RuinStageSmoke.Check(GetParent(), Fail);
         CheckAttackContractDifferences();
         ProceduralAudioSmoke.Check(GetParent());
         GD.Print("[Smoke] running (ACT_SMOKE=1)");
