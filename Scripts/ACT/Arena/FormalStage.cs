@@ -24,7 +24,6 @@ public partial class FormalStage : Node2D
     [Export] public string NextScene { get; set; } = "res://Scenes/CoreLoop.tscn";
 
     public float ActiveExitGateX => HasEnemy ? EncounterExitGateX : RouteExitGateX;
-    public LockGateEncounterController? Encounter => _encounter;
 
     private PlayerController _player = null!;
     private StageEnemyRoster _roster = null!;

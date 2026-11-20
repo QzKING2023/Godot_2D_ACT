@@ -1,3 +1,4 @@
+using ACTSpike.ACT.Combat;
 using ACTSpike.ACT.Enemy;
 using Godot;
 
@@ -201,7 +202,7 @@ public partial class RangedArcherVisual : EnemyVisual
 
         Vector2 start = archer.MuzzleGlobalPosition;
         Vector2 end = start + dir * MaxAimLineLength;
-        var query = PhysicsRayQueryParameters2D.Create(start, end, collisionMask: 2);
+        var query = PhysicsRayQueryParameters2D.Create(start, end, collisionMask: CombatCollisionMasks.WorldGeometry);
         query.CollideWithBodies = true;
         query.CollideWithAreas = false;
         Godot.Collections.Dictionary hit = world.DirectSpaceState.IntersectRay(query);

@@ -102,12 +102,16 @@ public partial class EnemyController : CharacterBody2D
     public event Action<EnemyStrikeCue>? StrikeActivated;
     public event Action<EnemyDamagedCue>? Damaged;
     public event Action<EnemyShieldDeflectedCue>? ShieldDeflected;
+    public event Action<EnemyShieldBrokenCue>? ShieldBroken;
     public event Action<EnemyProjectileFiredCue>? ProjectileFired;
     public event Action<EnemyOverloadPulseCue>? OverloadPulseTriggered;
 
     public virtual bool IsInvulnerable => false;
     public virtual bool HasFrontalDefense => false;
-    public bool IsFrontalDefenseActive => HasFrontalDefense && !IsShieldBroken;
+    public bool IsFrontalDefenseActive => HasFrontalDefense && !IsShieldBroken && !IsDefeated;
+    public virtual bool IsFacingLocked =>
+        State is EnemyState.Telegraph or EnemyState.Strike or EnemyState.Recover
+            or EnemyState.Hitstun or EnemyState.ShieldBroken or EnemyState.Dead or EnemyState.Victory;
 
     private PlayerController? _player;
     private TimeSlowManager? _timeSlow;
@@ -126,11 +130,12 @@ public partial class EnemyController : CharacterBody2D
     protected float Now => Time.GetTicksMsec() / 1000f;
     protected bool CanStartAttack => Now >= _nextAttackAllowedAt;
     protected virtual Vector2 BodySize => new(52f, 100f);
+    protected virtual bool AllowContinuousStrikeResolution => false;
 
     public override void _Ready()
     {
-        CollisionLayer = 1;
-        CollisionMask = 2;
+        CollisionLayer = CombatCollisionMasks.ActorBody;
+        CollisionMask = CombatCollisionMasks.WorldGeometry;
         AddChild(new CollisionShape2D
         {
             Shape = new RectangleShape2D { Size = BodySize },
@@ -140,8 +145,8 @@ public partial class EnemyController : CharacterBody2D
         var hurtbox = new Area2D
         {
             Name = "Hurtbox",
-            CollisionLayer = 4,
-            CollisionMask = 0,
+            CollisionLayer = CombatCollisionMasks.EnemyHurtbox,
+            CollisionMask = CombatCollisionMasks.None,
             Monitoring = false,
             Monitorable = true
         };
@@ -169,9 +174,9 @@ public partial class EnemyController : CharacterBody2D
         _nextAttackAllowedAt = Now + Windows.EnemyInitialDelaySeconds;
         _stateEndsAt = Now + Windows.BossSpawnSeconds;
         OnReset();
+        SetState(EnemyState.Spawn, "spawn");
         UpdateFacing();
         Visual?.Bind(this, player);
-        SetState(EnemyState.Spawn, "spawn");
     }
 
     public void BindTimeSlow(TimeSlowManager? timeSlow)
@@ -204,7 +209,7 @@ public partial class EnemyController : CharacterBody2D
 
         if (ProcessCustomPhysicsState(dt))
         {
-            MoveAndSlide();
+            if (IsInsideTree()) MoveAndSlide();
             return;
         }
 
@@ -248,13 +253,19 @@ public partial class EnemyController : CharacterBody2D
                 ThinkIdleOrChase();
                 break;
         }
-        MoveAndSlide();
+        if (IsInsideTree()) MoveAndSlide();
     }
 
     protected virtual bool ProcessCustomPhysicsState(float dt) => false;
 
     protected virtual void OnStrikeEnded()
     {
+        if (!_strikeResolved && AllowContinuousStrikeResolution)
+        {
+            _strikeResolved = true;
+            GD.Print($"[Enemy] {CurrentAttack.Name} whiffed (outside threat)");
+            SetNextAttackCooldown(Windows.EnemyAttackCooldown);
+        }
         _stateEndsAt = Now + CurrentAttack.RecoverySeconds;
         SetState(EnemyState.Recover, $"{CurrentAttack.Name} active window ended");
     }
@@ -268,7 +279,7 @@ public partial class EnemyController : CharacterBody2D
 
     protected virtual void UpdateFacing()
     {
-        if (IsDefeated || _player is null || !GodotObject.IsInstanceValid(_player))
+        if (IsFacingLocked || _player is null || !GodotObject.IsInstanceValid(_player))
             return;
         Facing = _player.GlobalPosition.X >= GlobalPosition.X ? 1 : -1;
     }
@@ -372,20 +383,25 @@ public partial class EnemyController : CharacterBody2D
 
     protected virtual void ResolveStrike()
     {
-        _strikeResolved = true;
         if (_player is null || !GodotObject.IsInstanceValid(_player))
         {
+            _strikeResolved = true;
             SetNextAttackCooldown(Windows.EnemyAttackCooldown);
             return;
         }
 
         if (!IsTargetInStrikeThreat())
         {
-            GD.Print($"[Enemy] {CurrentAttack.Name} whiffed (outside threat)");
-            SetNextAttackCooldown(Windows.EnemyAttackCooldown);
+            if (!AllowContinuousStrikeResolution)
+            {
+                _strikeResolved = true;
+                GD.Print($"[Enemy] {CurrentAttack.Name} whiffed (outside threat)");
+                SetNextAttackCooldown(Windows.EnemyAttackCooldown);
+            }
             return;
         }
 
+        _strikeResolved = true;
         bool answered = _player.TryReceiveEnemyAttack(CurrentAttack.Damage, CurrentAttack.Kind,
             out AttackResolution resolution);
         GD.Print(answered
@@ -404,9 +420,9 @@ public partial class EnemyController : CharacterBody2D
     protected virtual bool ShouldDeflectHit(in EnemyHitContext hit)
         => IsFrontalDefenseActive && hit.IsFrontalStrike(GlobalPosition, Facing);
 
-    protected virtual bool ShouldEnterHitstunOnDamage(in EnemyHitContext hit) => true;
+    protected virtual bool ShouldEnterHitstunOnDamage() => true;
 
-    protected virtual void OnDamagedPostApply(in EnemyHitContext hit, bool defeated) { }
+    protected virtual void OnDamagedPostApply(bool defeated) { }
 
     protected virtual void OnStrikeResolved(AttackResolution resolution)
     {
@@ -448,14 +464,14 @@ public partial class EnemyController : CharacterBody2D
             _stateEndsAt = Now + Windows.VictoryDelaySeconds;
             SetState(EnemyState.Dead, "destroyed");
             Damaged?.Invoke(new EnemyDamagedCue(hit.Damage, Hp, MaxHp, Defeated: true, GlobalPosition));
-            OnDamagedPostApply(hit, defeated: true);
+            OnDamagedPostApply(defeated: true);
             return EnemyHitOutcome.Damaged;
         }
 
-        if (State != EnemyState.ShieldBroken && ShouldEnterHitstunOnDamage(hit))
+        if (State != EnemyState.ShieldBroken && ShouldEnterHitstunOnDamage())
             EnterHitstun($"took {hit.Damage:0} damage");
         Damaged?.Invoke(new EnemyDamagedCue(hit.Damage, Hp, MaxHp, Defeated: false, GlobalPosition));
-        OnDamagedPostApply(hit, defeated: false);
+        OnDamagedPostApply(defeated: false);
         return EnemyHitOutcome.Damaged;
     }
 
@@ -475,9 +491,13 @@ public partial class EnemyController : CharacterBody2D
     public void EnterShieldBreak(float durationSeconds, string reason = "shield broken")
     {
         if (IsDefeated) return;
+        float clampedDuration = Mathf.Max(0f, durationSeconds);
+        bool wasShieldBroken = State == EnemyState.ShieldBroken;
         ReleaseAttackToken();
-        _stateEndsAt = Now + Mathf.Max(0f, durationSeconds);
+        _stateEndsAt = Now + clampedDuration;
         SetState(EnemyState.ShieldBroken, reason);
+        if (!wasShieldBroken && State == EnemyState.ShieldBroken)
+            ShieldBroken?.Invoke(new EnemyShieldBrokenCue(GlobalPosition, Facing, clampedDuration));
     }
 
     protected void EnterHitstun(string reason) => EnterHitstun(reason, Windows.HitstunSeconds);
@@ -507,8 +527,8 @@ public partial class EnemyController : CharacterBody2D
         _stateEndsAt = Now + Windows.BossSpawnSeconds;
         _strikeResolved = false;
         OnReset();
-        UpdateFacing();
         SetState(EnemyState.Spawn, "round reset");
+        UpdateFacing();
     }
 
     protected BossAttackDefinition CreateNormalAttackDefinition()

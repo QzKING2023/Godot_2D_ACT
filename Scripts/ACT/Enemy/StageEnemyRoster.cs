@@ -18,6 +18,7 @@ public partial class StageEnemyRoster : Node
         public required Action<EnemyStrikeCue> OnStrike { get; init; }
         public required Action<EnemyDamagedCue> OnDamaged { get; init; }
         public required Action<EnemyShieldDeflectedCue> OnShieldDeflected { get; init; }
+        public required Action<EnemyShieldBrokenCue> OnShieldBroken { get; init; }
         public required Action<EnemyProjectileFiredCue> OnProjectileFired { get; init; }
         public required Action<EnemyOverloadPulseCue> OnOverloadPulseTriggered { get; init; }
         public required Action OnTreeExiting { get; init; }
@@ -55,6 +56,7 @@ public partial class StageEnemyRoster : Node
     public event Action<RosterEnemyStrikeCue>? EnemyStrikeActivated;
     public event Action<RosterEnemyDamagedCue>? EnemyDamaged;
     public event Action<RosterEnemyShieldDeflectedCue>? EnemyShieldDeflected;
+    public event Action<RosterEnemyShieldBrokenCue>? EnemyShieldBroken;
     public event Action<RosterEnemyProjectileFiredCue>? EnemyProjectileFired;
     public event Action<RosterEnemyOverloadPulseCue>? EnemyOverloadPulseTriggered;
 
@@ -91,6 +93,7 @@ public partial class StageEnemyRoster : Node
                 EnemyDamaged?.Invoke(new RosterEnemyDamagedCue(enemy, cue));
             },
             OnShieldDeflected = cue => EnemyShieldDeflected?.Invoke(new RosterEnemyShieldDeflectedCue(enemy, cue)),
+            OnShieldBroken = cue => EnemyShieldBroken?.Invoke(new RosterEnemyShieldBrokenCue(enemy, cue)),
             OnProjectileFired = cue => EnemyProjectileFired?.Invoke(new RosterEnemyProjectileFiredCue(enemy, cue)),
             OnOverloadPulseTriggered = cue => EnemyOverloadPulseTriggered?.Invoke(new RosterEnemyOverloadPulseCue(enemy, cue)),
             OnTreeExiting = () => Unregister(enemy)
@@ -100,6 +103,7 @@ public partial class StageEnemyRoster : Node
         enemy.StrikeActivated += binding.OnStrike;
         enemy.Damaged += binding.OnDamaged;
         enemy.ShieldDeflected += binding.OnShieldDeflected;
+        enemy.ShieldBroken += binding.OnShieldBroken;
         enemy.ProjectileFired += binding.OnProjectileFired;
         enemy.OverloadPulseTriggered += binding.OnOverloadPulseTriggered;
         enemy.TreeExiting += binding.OnTreeExiting;
@@ -136,6 +140,7 @@ public partial class StageEnemyRoster : Node
         enemy.StrikeActivated -= binding.OnStrike;
         enemy.Damaged -= binding.OnDamaged;
         enemy.ShieldDeflected -= binding.OnShieldDeflected;
+        enemy.ShieldBroken -= binding.OnShieldBroken;
         enemy.ProjectileFired -= binding.OnProjectileFired;
         enemy.OverloadPulseTriggered -= binding.OnOverloadPulseTriggered;
         AttackCoordinator.Release(enemy);

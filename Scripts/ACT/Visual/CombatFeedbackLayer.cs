@@ -262,6 +262,7 @@ public partial class CombatFeedbackLayer : Node2D
             _roster.EnemyStrikeActivated += OnRosterEnemyStrikeActivated;
             _roster.EnemyDamaged += OnRosterEnemyDamaged;
             _roster.EnemyShieldDeflected += OnRosterEnemyShieldDeflected;
+            _roster.EnemyShieldBroken += OnRosterEnemyShieldBroken;
             _roster.EnemyOverloadPulseTriggered += OnRosterEnemyOverloadPulseTriggered;
             _roster.EnemyUnregistered += OnRosterEnemyUnregistered;
         }
@@ -290,6 +291,7 @@ public partial class CombatFeedbackLayer : Node2D
                 _roster.EnemyStrikeActivated -= OnRosterEnemyStrikeActivated;
                 _roster.EnemyDamaged -= OnRosterEnemyDamaged;
                 _roster.EnemyShieldDeflected -= OnRosterEnemyShieldDeflected;
+                _roster.EnemyShieldBroken -= OnRosterEnemyShieldBroken;
                 _roster.EnemyOverloadPulseTriggered -= OnRosterEnemyOverloadPulseTriggered;
                 _roster.EnemyUnregistered -= OnRosterEnemyUnregistered;
             }
@@ -567,6 +569,19 @@ public partial class CombatFeedbackLayer : Node2D
         SpawnRing(impactOrigin, 8f, 54f, 0.20f, RuinGeometryPalette.PlayerShieldEdge, 3f);
         SpawnBurst(impactOrigin, 12, RuinGeometryPalette.PlayerBlade, 290f, ParticleShape.Spark);
         SpawnBurst(impactOrigin, 5, Colors.White, 220f, ParticleShape.Shard);
+    }
+
+    private void OnRosterEnemyShieldBroken(RosterEnemyShieldBrokenCue rosterCue)
+    {
+        EnemyShieldBrokenCue cue = rosterCue.Cue;
+        int facing = cue.DefenderFacing >= 0 ? 1 : -1;
+        Vector2 shieldOrigin = cue.Position + new Vector2(facing * 32f, -4f);
+        TriggerEnemyHitstop(rosterCue.Enemy, 0.06f);
+        TriggerShake(9.5f);
+        SpawnRing(shieldOrigin, 12f, 118f, 0.36f, RuinGeometryPalette.TelegraphNormal, 5f);
+        SpawnRing(shieldOrigin, 8f, 76f, 0.26f, RuinGeometryPalette.PlayerShieldEdge, 3.5f);
+        SpawnBurst(shieldOrigin, 18, RuinGeometryPalette.GateStoneLit, 360f, ParticleShape.Shard);
+        SpawnBurst(shieldOrigin, 10, RuinGeometryPalette.PlayerBlade, 320f, ParticleShape.Spark);
     }
 
     private void OnRosterEnemyOverloadPulseTriggered(RosterEnemyOverloadPulseCue rosterCue)

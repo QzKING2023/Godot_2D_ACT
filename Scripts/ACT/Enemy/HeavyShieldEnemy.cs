@@ -34,7 +34,6 @@ public partial class HeavyShieldEnemy : EnemyController
     private int _pendingFacing;
     private float _pendingTurnSinceRealSec = -1f;
     private int _attackCycle;
-    private bool _currentStrikeResolved;
 
     public HeavyShieldEnemy()
     {
@@ -47,11 +46,9 @@ public partial class HeavyShieldEnemy : EnemyController
 
     public override bool HasFrontalDefense => true;
     public override AttackTokenPool AttackTokenPoolKind => AttackTokenPool.Melee;
-    public bool IsFacingLocked =>
-        State is EnemyState.Telegraph or EnemyState.Strike or EnemyState.Recover
-            or EnemyState.Hitstun or EnemyState.ShieldBroken or EnemyState.Dead or EnemyState.Victory;
 
     protected override Vector2 BodySize => new(62f, 100f);
+    protected override bool AllowContinuousStrikeResolution => CurrentAttackKind == BossAttackKind.BreakGrab;
 
     protected override EnemyVisual CreateVisual()
         => new HeavyShieldVisual { Name = "Visual" };
@@ -134,9 +131,7 @@ public partial class HeavyShieldEnemy : EnemyController
 
     protected override void BeginStrike()
     {
-        _currentStrikeResolved = false;
         base.BeginStrike();
-        SetNextAttackCooldown(Windows.EnemyAttackCooldown);
         Velocity = CurrentAttackKind == BossAttackKind.BreakGrab
             ? Velocity with { X = Facing * ShieldChargeSpeed }
             : Velocity with { X = 0f };
@@ -154,59 +149,24 @@ public partial class HeavyShieldEnemy : EnemyController
         return signedDx >= -StrikeBackMarginPx;
     }
 
-    protected override void ResolveStrike()
+    protected override void OnStrikeResolved(AttackResolution resolution)
     {
-        if (_currentStrikeResolved)
-            return;
-
-        PlayerController? player = TargetPlayer;
-        if (player is null || !GodotObject.IsInstanceValid(player))
-        {
-            _currentStrikeResolved = true;
-            SetNextAttackCooldown(Windows.EnemyAttackCooldown);
-            return;
-        }
-
-        if (!IsTargetInStrikeThreat())
-        {
-            if (CurrentAttackKind != BossAttackKind.BreakGrab)
-            {
-                _currentStrikeResolved = true;
-                GD.Print($"[Enemy] {CurrentAttack.Name} whiffed (outside threat)");
-                SetNextAttackCooldown(Windows.EnemyAttackCooldown);
-            }
-            return;
-        }
-
-        _currentStrikeResolved = true;
-        bool answered = player.TryReceiveEnemyAttack(
-            CurrentAttack.Damage,
-            CurrentAttack.Kind,
-            out AttackResolution resolution);
-        GD.Print(answered
-            ? $"[Enemy] {CurrentAttack.Name} answered: {resolution.Result}"
-            : $"[Enemy] {CurrentAttack.Name} landed: {resolution.Result} (player hp {player.Hp:0})");
-
         if (resolution.Result == DefenseResult.PerfectBlocked &&
             resolution.EnemyStaggered &&
             CurrentAttackKind == BossAttackKind.Normal)
         {
             float breakDuration = Mathf.Max(ShieldBreakDurationSeconds, Windows.HitstunSeconds * 3f);
             EnterShieldBreak(breakDuration, "shield broken by frontal perfect block");
-        }
-        else if (resolution.EnemyStaggered)
-        {
-            EnterHitstun("staggered by perfect block");
+            return;
         }
 
-        SetNextAttackCooldown(Windows.EnemyAttackCooldown);
+        base.OnStrikeResolved(resolution);
     }
 
     protected override void OnReset()
     {
         _facingInitialized = false;
         _attackCycle = 0;
-        _currentStrikeResolved = false;
         ClearPendingTurn();
     }
 

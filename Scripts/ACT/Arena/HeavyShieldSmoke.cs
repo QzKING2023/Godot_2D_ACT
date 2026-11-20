@@ -169,7 +169,7 @@ public static class HeavyShieldSmoke
                 failures.Add($"facing unlocked during Recover (flipped to {guard.Facing})");
 
             // Advance out of Recover -> Idle; now facing can flip (TurnDelaySeconds == 0)
-            OS.DelayMsec(50);
+            OS.DelayMsec(65);
             guard._PhysicsProcess(0.016); // Recover -> Idle
             guard._PhysicsProcess(0.016); // Idle updates facing
             if (guard.State is EnemyState.Telegraph or EnemyState.Strike or EnemyState.Recover || guard.Facing != 1)
@@ -452,9 +452,11 @@ public static class HeavyShieldSmoke
 
     private static void CheckPerfectBlockShieldBreakAndFrontalKillContract(Node host, List<string> failures)
     {
+        Camera2D? previousCamera = host.GetViewport()?.GetCamera2D();
         var stage = new Node2D { Name = "HeavyShieldBreakKillProbeStage" };
         AddProbeFloor(stage, centerX: 500f, floorTopY: 560f, width: 900f);
         var timeSlow = new TimeSlowManager { Name = "ProbeTimeSlow", Config = new TimeSlowConfig() };
+        var camera = new Camera2D { Name = "ProbeCamera" };
         var windows = new CombatWindowConfig
         {
             BossSpawnSeconds = 0f,
@@ -484,13 +486,23 @@ public static class HeavyShieldSmoke
         roster.BindTimeSlow(timeSlow);
 
         stage.AddChild(timeSlow);
+        stage.AddChild(camera);
         stage.AddChild(player);
         stage.AddChild(guard);
         stage.AddChild(roster);
         host.AddChild(stage);
 
+        var feedback = CombatFeedbackLayer.AttachRoster(stage, player, roster, timeSlow, camera);
+
         int deflectEvents = 0;
+        int shieldBrokenEvents = 0;
+        RosterEnemyShieldBrokenCue? lastShieldBrokenCue = null;
         roster.EnemyShieldDeflected += _ => deflectEvents++;
+        roster.EnemyShieldBroken += cue =>
+        {
+            shieldBrokenEvents++;
+            lastShieldBrokenCue = cue;
+        };
 
         try
         {
@@ -522,6 +534,8 @@ public static class HeavyShieldSmoke
                 failures.Add($"player failed to enter Block before golden shield slam (state={player.State})");
 
             guard._PhysicsProcess(0.016); // Telegraph -> Strike
+            int particlesBeforePerfectBreak = feedback.ActiveParticleCount;
+            int ringsBeforePerfectBreak = feedback.ActiveRingCount;
             guard._PhysicsProcess(0.016); // Strike resolves against frontal perfect block -> ShieldBroken!
 
             SendAction("block", false);
@@ -537,6 +551,15 @@ public static class HeavyShieldSmoke
                 roster.AttackCoordinator.ActiveMeleeCount != 0)
             {
                 failures.Add($"frontal perfect block did not enter ShieldBroken & release token (state={guard.State}, broken={guard.IsShieldBroken}, frontalActive={guard.IsFrontalDefenseActive}, holds={guard.HoldsAttackToken}, activeMelee={roster.AttackCoordinator.ActiveMeleeCount})");
+            }
+
+            if (shieldBrokenEvents != 1 ||
+                lastShieldBrokenCue is null ||
+                !ReferenceEquals(lastShieldBrokenCue.Value.Enemy, guard) ||
+                feedback.ActiveParticleCount <= particlesBeforePerfectBreak + 18 ||
+                feedback.ActiveRingCount <= ringsBeforePerfectBreak + 1)
+            {
+                failures.Add($"perfect block shield break did not emit EnemyShieldBroken & burst feedback (events={shieldBrokenEvents}, particles={particlesBeforePerfectBreak}->{feedback.ActiveParticleCount}, rings={ringsBeforePerfectBreak}->{feedback.ActiveRingCount})");
             }
 
             guard.Visual?._Process(0.016);
@@ -590,17 +613,34 @@ public static class HeavyShieldSmoke
                 !Mathf.IsEqualApprox(guard.Hp, 0f) ||
                 guard.State != EnemyState.Dead ||
                 !guard.IsDefeated ||
+                guard.IsFrontalDefenseActive ||
                 deflectEvents != 0)
             {
-                failures.Add($"frontal kill during ShieldBroken failed (outcome={hit4}, hp={guard.Hp}, state={guard.State}, deflects={deflectEvents})");
+                failures.Add($"frontal kill during ShieldBroken failed (outcome={hit4}, hp={guard.Hp}, state={guard.State}, frontalActive={guard.IsFrontalDefenseActive}, deflects={deflectEvents})");
             }
 
-            // Recovery check: reset guard, enter short ShieldBroken, confirm shield restores after expiry
+            // Defeated guard outside ShieldBroken must STILL report IsFrontalDefenseActive == false
             guard.ResetTo(new Vector2(480f, 500f));
             guard._PhysicsProcess(0.016); // Spawn -> Idle
+            guard.TakeHit(new EnemyHitContext(guard.MaxHp, new Vector2(560f, 500f), Vector2.Left));
+            if (!guard.IsDefeated || guard.IsFrontalDefenseActive)
+                failures.Add($"defeated HeavyShieldEnemy still reported IsFrontalDefenseActive={guard.IsFrontalDefenseActive}");
+
+            // Recovery & shield-break geometric burst check: reset guard, enter short ShieldBroken, confirm burst + shield restore
+            guard.ResetTo(new Vector2(480f, 500f));
+            guard._PhysicsProcess(0.016); // Spawn -> Idle
+            int particlesBeforeBreak = feedback.ActiveParticleCount;
+            int ringsBeforeBreak = feedback.ActiveRingCount;
+            int brokenEventsBefore = shieldBrokenEvents;
             guard.EnterShieldBreak(0.04f, "recovery check");
             if (!guard.IsShieldBroken || guard.IsFrontalDefenseActive)
                 failures.Add("EnterShieldBreak did not deactivate frontal defense");
+            if (shieldBrokenEvents != brokenEventsBefore + 1 ||
+                feedback.ActiveParticleCount <= particlesBeforeBreak ||
+                feedback.ActiveRingCount <= ringsBeforeBreak)
+            {
+                failures.Add($"EnterShieldBreak did not emit EnemyShieldBroken or spawn shield-shatter geometric burst/ring in CombatFeedbackLayer (events={brokenEventsBefore}->{shieldBrokenEvents}, particles {particlesBeforeBreak}->{feedback.ActiveParticleCount}, rings {ringsBeforeBreak}->{feedback.ActiveRingCount})");
+            }
 
             OS.DelayMsec(55);
             guard._PhysicsProcess(0.016); // ShieldBroken -> Idle
@@ -617,6 +657,7 @@ public static class HeavyShieldSmoke
             SendAction("block", false);
             host.RemoveChild(stage);
             stage.Free();
+            previousCamera?.MakeCurrent();
         }
     }
 

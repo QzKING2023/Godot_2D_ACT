@@ -85,8 +85,8 @@ public partial class PlayerController : CharacterBody2D
     {
         Hp = MaxHp;
         Guard = MaxGuard;
-        CollisionLayer = 1;   // actors
-        CollisionMask = 2;    // world geometry only (no body-vs-body with enemy)
+        CollisionLayer = CombatCollisionMasks.ActorBody;     // actors
+        CollisionMask = CombatCollisionMasks.WorldGeometry;  // world geometry only (no body-vs-body with enemy)
 
         var shape = new CollisionShape2D
         {
@@ -117,8 +117,8 @@ public partial class PlayerController : CharacterBody2D
         _attackHitbox = new Area2D
         {
             Name = "AttackHitbox", // future: swap for animated frame data
-            CollisionLayer = 0,
-            CollisionMask = 4,    // enemy hurtboxes
+            CollisionLayer = CombatCollisionMasks.None,
+            CollisionMask = CombatCollisionMasks.EnemyHurtbox,
             Monitoring = false,
             Monitorable = false
         };

@@ -469,7 +469,7 @@ public partial class SmokeTest : Node
                 if (!Enemy.IsDefeated &&
                     !Enemy.IsInvulnerable &&
                     Player.State is PlayerState.Idle or PlayerState.Move &&
-                    now - _phaseStart > 0.08f)
+                    now - _phaseStart > 0.02f)
                 {
                     // Keep player cleanly positioned on the boss apron and deal brisk damage with skill dashes (2 dmg + i-frames)
                     // so the full 28 HP two-phase boss fight finishes well within the headless smoke frame budget.
@@ -478,11 +478,11 @@ public partial class SmokeTest : Node
                     if (!_skillProbeUsed || Enemy.Hp > 1f)
                     {
                         _skillProbeUsed = true;
-                        Tap("skill");
+                        Tap("skill", 0.02f);
                     }
                     else
                     {
-                        Tap("attack");
+                        Tap("attack", 0.02f);
                     }
                     Enter(Phase.AwaitBossHit, now);
                 }
@@ -576,10 +576,10 @@ public partial class SmokeTest : Node
         return Enemy.CurrentAttackKind == expected;
     }
 
-    private void Tap(string action)
+    private void Tap(string action, float holdSeconds = TapSeconds)
     {
         SetAction(action, true);
-        _tapReleaseAt = Now + TapSeconds;
+        _tapReleaseAt = Now + holdSeconds;
     }
 
     private void Enter(Phase next, float now)

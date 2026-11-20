@@ -61,6 +61,12 @@ public readonly record struct EnemyShieldDeflectedCue(
     Vector2 Position,
     int DefenderFacing);
 
+/// <summary>Read-only presentation cue emitted when an enemy's frontal shield shatters into「破盾失衡」.</summary>
+public readonly record struct EnemyShieldBrokenCue(
+    Vector2 Position,
+    int DefenderFacing,
+    float DurationSeconds);
+
 /// <summary>Read-only presentation cue emitted when a ranged enemy fires a projectile.</summary>
 public readonly record struct EnemyProjectileFiredCue(
     Vector2 Origin,
@@ -91,6 +97,11 @@ public readonly record struct RosterEnemyDamagedCue(
 public readonly record struct RosterEnemyShieldDeflectedCue(
     EnemyController Enemy,
     EnemyShieldDeflectedCue Cue);
+
+/// <summary>Read-only presentation cue forwarded by StageEnemyRoster when an enemy enters「破盾失衡」.</summary>
+public readonly record struct RosterEnemyShieldBrokenCue(
+    EnemyController Enemy,
+    EnemyShieldBrokenCue Cue);
 
 /// <summary>Read-only presentation cue forwarded by StageEnemyRoster when an enemy launches a ranged projectile.</summary>
 public readonly record struct RosterEnemyProjectileFiredCue(

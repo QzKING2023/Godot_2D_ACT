@@ -25,6 +25,7 @@ public static class RuinGuardianBossSmoke
         CheckPhaseOneDistanceSelectionAndBackstep(host, failures);
         CheckHalfHpOverloadTransitionPushbackAndWiring(host, failures);
         CheckPhaseTwoTightenedWindowsCombosAndReset(host, failures);
+        CheckContinuousStrikeResolutionForLungeAndCounterGrab(host, failures);
 
         if (failures.Count == 0)
         {
@@ -572,6 +573,135 @@ public static class RuinGuardianBossSmoke
         finally
         {
             SendAction("block", false);
+            host.RemoveChild(probeStage);
+            probeStage.Free();
+        }
+    }
+
+    private static void CheckContinuousStrikeResolutionForLungeAndCounterGrab(Node host, List<string> failures)
+    {
+        const float probeFloorY = -1600f;
+        float playerY = probeFloorY - 23f;
+        float bossY = probeFloorY - 50f;
+
+        var probeStage = new Node2D { Name = "RuinGuardianContinuousStrikeProbe" };
+        var floor = new StaticBody2D { CollisionLayer = 2, CollisionMask = 0, Position = new Vector2(800f, probeFloorY + 20f) };
+        floor.AddChild(new CollisionShape2D { Shape = new RectangleShape2D { Size = new Vector2(2000f, 40f) } });
+        probeStage.AddChild(floor);
+
+        var windows = new CombatWindowConfig
+        {
+            BossSpawnSeconds = 0f,
+            EnemyInitialDelaySeconds = 0f,
+            EnemyAttackCooldown = 0f,
+            NormalAttackTelegraphSeconds = 0f,
+            NormalAttackActiveSeconds = 0.22f,
+            NormalAttackRecoverySeconds = 0f,
+            BreakGrabTelegraphSeconds = 0f,
+            BreakGrabActiveSeconds = 0.22f,
+            BreakGrabRecoverySeconds = 0f,
+            DelayedAreaTelegraphSeconds = 0f,
+            DelayedAreaActiveSeconds = 0f,
+            DelayedAreaRecoverySeconds = 0f
+        };
+        var player = new PlayerController
+        {
+            Name = "ContinuousStrikeProbePlayer",
+            Position = new Vector2(480f, playerY),
+            Windows = windows,
+            TimeSlow = new TimeSlowConfig()
+        };
+        var boss = new RuinGuardianBoss
+        {
+            Name = "Boss",
+            Position = new Vector2(840f, bossY), // 360px (> 330px) far lunge distance
+            ArenaMinX = 200f,
+            ArenaMaxX = 1300f,
+            OverloadTransitionSeconds = 0f
+        };
+
+        int defenseHits = 0;
+        player.DefenseResolved += _ => defenseHits++;
+
+        probeStage.AddChild(player);
+        probeStage.AddChild(boss);
+        host.AddChild(probeStage);
+
+        try
+        {
+            // 1. Far lunge golden Normal strike (>330px: 360px start) must connect during Strike lunge and settle exactly once
+            boss.Bind(player, windows);
+            player._PhysicsProcess(0.05);
+
+            // Step through Spawn -> Idle -> LungeApproach -> Telegraph -> Strike
+            for (int step = 0; step < 40 && boss.State != EnemyState.Strike; step++)
+                boss._PhysicsProcess(0.016);
+
+            if (boss.State != EnemyState.Strike || boss.CurrentAttackKind != BossAttackKind.Normal)
+            {
+                failures.Add($"far lunge setup did not reach Normal Strike (state={boss.State}, kind={boss.CurrentAttackKind})");
+            }
+            else
+            {
+                float hpBeforeLunge = player.Hp;
+                defenseHits = 0;
+                for (int step = 0; step < 18 && boss.State == EnemyState.Strike; step++)
+                    boss._PhysicsProcess(0.016);
+
+                if (defenseHits != 1 || player.Hp >= hpBeforeLunge)
+                {
+                    failures.Add($"far lunge Normal strike failed continuous hit resolution: hits={defenseHits} hp={player.Hp}/{hpBeforeLunge} dist={boss.GlobalPosition.DistanceTo(player.GlobalPosition):0.0}");
+                }
+            }
+
+            // 2. Phase 2 backstep from 150px -> immediate counter BreakGrab must lunge in during Strike and connect exactly once
+            windows.NormalAttackActiveSeconds = 0f;
+            boss.ResetTo(new Vector2(630f, bossY));
+            player.ResetTo(new Vector2(480f, playerY)); // 150px close range
+            player._PhysicsProcess(0.05);
+            boss._PhysicsProcess(0.016); // Spawn -> Idle
+            boss.TakeHit(new EnemyHitContext(14f, player.GlobalPosition, Vector2.Right)); // Enter Phase 2
+            boss._PhysicsProcess(0.016); // Exit 0s overload transition
+
+            // Advance through close Normal strike -> Recover -> Backstep -> Counter BreakGrab Telegraph
+            bool reachedCounterGrabTelegraph = false;
+            for (int step = 0; step < 60; step++)
+            {
+                bool wasBackstepping = boss.IsBackstepping;
+                boss._PhysicsProcess(0.016);
+                if (wasBackstepping && !boss.IsBackstepping &&
+                    boss.State == EnemyState.Telegraph &&
+                    boss.CurrentAttackKind == BossAttackKind.BreakGrab)
+                {
+                    reachedCounterGrabTelegraph = true;
+                    break;
+                }
+            }
+
+            if (!reachedCounterGrabTelegraph)
+            {
+                failures.Add($"counter BreakGrab setup did not reach post-backstep BreakGrab Telegraph (state={boss.State}, kind={boss.CurrentAttackKind}, dist={boss.GlobalPosition.DistanceTo(player.GlobalPosition):0.0})");
+            }
+            else
+            {
+                // Keep player stationary at 150px origin (now ~232px away after 82px backstep) and advance into Strike
+                player.ResetTo(new Vector2(480f, playerY));
+                player._PhysicsProcess(0.05);
+                float hpBeforeGrab = player.Hp;
+                defenseHits = 0;
+
+                boss._PhysicsProcess(0.016); // Telegraph (0s) -> Strike
+                for (int step = 0; step < 18 && boss.State == EnemyState.Strike; step++)
+                    boss._PhysicsProcess(0.016);
+
+                if (defenseHits != 1 || player.Hp >= hpBeforeGrab)
+                {
+                    failures.Add($"post-backstep counter BreakGrab failed continuous hit resolution: hits={defenseHits} hp={player.Hp}/{hpBeforeGrab} dist={boss.GlobalPosition.DistanceTo(player.GlobalPosition):0.0}");
+                }
+            }
+        }
+        finally
+        {
             host.RemoveChild(probeStage);
             probeStage.Free();
         }

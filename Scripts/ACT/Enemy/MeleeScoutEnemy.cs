@@ -48,16 +48,6 @@ public partial class MeleeScoutEnemy : EnemyController
 
     protected override EnemyVisual CreateVisual() => new MeleeScoutVisual { Name = "Visual" };
 
-    protected override void UpdateFacing()
-    {
-        // Lock facing once committed to Telegraph/Strike/Recover or staggered/defeated
-        // so the golden-fan forward slash can be cleanly evaded by crossing behind.
-        if (State is not (EnemyState.Spawn or EnemyState.Idle or EnemyState.Chase))
-            return;
-
-        base.UpdateFacing();
-    }
-
     protected override BossAttackDefinition SelectNextAttack()
         => new(
             BossAttackKind.Normal,

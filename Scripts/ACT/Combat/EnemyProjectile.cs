@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.Player;
@@ -18,6 +19,7 @@ public enum ProjectileFaction
 /// Enemy faction collides only with PlayerController and world static geometry (never allies).
 /// Perfect block flips the projectile to sword-gold PlayerReflected faction aimed back at the
 /// original shooter and deals 2 damage (bypassing frontal shields) to the first living enemy hit.
+/// Visual rendering lives in the dedicated EnemyProjectileVisual child node.
 /// </summary>
 public partial class EnemyProjectile : Area2D
 {
@@ -28,26 +30,6 @@ public partial class EnemyProjectile : Area2D
     public const float DefaultReflectedDamage = 2f;
     public const float DefaultMaxRange = 1400f;
     public const float HitRadius = 8f;
-
-    private static readonly Vector2[] EnemyOuterPoints =
-    {
-        new(14f, 0f), new(-2f, -6.5f), new(-13f, 0f), new(-2f, 6.5f)
-    };
-
-    private static readonly Vector2[] EnemyInnerPoints =
-    {
-        new(8f, 0f), new(-1f, -3f), new(-7f, 0f), new(-1f, 3f)
-    };
-
-    private static readonly Vector2[] ReflectedOuterPoints =
-    {
-        new(18f, 0f), new(-2f, -7.5f), new(-16f, 0f), new(-2f, 7.5f)
-    };
-
-    private static readonly Vector2[] ReflectedInnerPoints =
-    {
-        new(12f, 0f), new(0f, -3.5f), new(-10f, 0f), new(0f, 3.5f)
-    };
 
     private readonly HashSet<ulong> _dodgedPlayerIds = new();
     private CircleShape2D _sweepShape = new() { Radius = HitRadius };
@@ -61,9 +43,8 @@ public partial class EnemyProjectile : Area2D
     public float ReflectedSpeed { get; set; } = DefaultReflectedSpeed;
     public float MaxRange { get; set; } = DefaultMaxRange;
     public EnemyController? SourceEnemy { get; private set; }
-    public Vector2 SpawnOrigin { get; private set; }
     public bool IsConsumed { get; private set; }
-    public Vector2 Velocity => Direction * Speed;
+    public EnemyProjectileVisual? Visual { get; private set; }
 
     public void Initialize(
         Vector2 origin,
@@ -73,7 +54,6 @@ public partial class EnemyProjectile : Area2D
         EnemyController? sourceEnemy = null)
     {
         GlobalPosition = origin;
-        SpawnOrigin = origin;
         Direction = direction.LengthSquared() > 0.0001f ? direction.Normalized() : Vector2.Left;
         Speed = Mathf.Max(1f, speed);
         Damage = Mathf.Max(0f, damage);
@@ -83,16 +63,18 @@ public partial class EnemyProjectile : Area2D
         _distanceTraveled = 0f;
         _dodgedPlayerIds.Clear();
         Rotation = Direction.Angle();
-        CollisionLayer = 0;
-        CollisionMask = 1 | 2;
-        QueueRedraw();
+        CollisionLayer = CombatCollisionMasks.None;
+        CollisionMask = CombatCollisionMasks.EnemyProjectileTargets;
+        Visual?.QueueRedraw();
     }
 
     public override void _Ready()
     {
         ZIndex = 6;
-        CollisionLayer = 0;
-        CollisionMask = Faction == ProjectileFaction.Enemy ? 1u | 2u : 2u | 4u;
+        CollisionLayer = CombatCollisionMasks.None;
+        CollisionMask = Faction == ProjectileFaction.Enemy
+            ? CombatCollisionMasks.EnemyProjectileTargets
+            : CombatCollisionMasks.ReflectedProjectileTargets;
         Monitoring = false;
         Monitorable = false;
 
@@ -101,14 +83,13 @@ public partial class EnemyProjectile : Area2D
             Name = "HitShape",
             Shape = _sweepShape
         });
+
+        Visual = new EnemyProjectileVisual { Name = "Visual" };
+        AddChild(Visual);
+        Visual.Bind(this);
+
         AddToGroup(GroupName);
         Rotation = Direction.Angle();
-    }
-
-    public override void _Process(double delta)
-    {
-        if (!IsConsumed)
-            QueueRedraw();
     }
 
     public override void _PhysicsProcess(double delta)
@@ -121,35 +102,6 @@ public partial class EnemyProjectile : Area2D
             return;
 
         StepFlight(dt);
-    }
-
-    public override void _Draw()
-    {
-        if (IsConsumed)
-            return;
-
-        if (Faction == ProjectileFaction.PlayerReflected)
-        {
-            DrawLine(new Vector2(-34f, 0f), new Vector2(-10f, 0f), RuinGeometryPalette.SlashOuterGold with { A = 0.72f }, 4.5f, true);
-            GeometricDraw.FillAndStrokePolygon(
-                this,
-                ReflectedOuterPoints,
-                RuinGeometryPalette.PlayerBlade,
-                RuinGeometryPalette.SlashOuterGold,
-                width: 1.8f);
-            GeometricDraw.FillPolygon(this, ReflectedInnerPoints, RuinGeometryPalette.SlashInnerGold);
-        }
-        else
-        {
-            DrawLine(new Vector2(-24f, 0f), new Vector2(-8f, 0f), RuinGeometryPalette.HitCrimson with { A = 0.60f }, 3f, true);
-            GeometricDraw.FillAndStrokePolygon(
-                this,
-                EnemyOuterPoints,
-                RuinGeometryPalette.TelegraphNormal,
-                RuinGeometryPalette.HitCrimson,
-                width: 1.6f);
-            GeometricDraw.FillPolygon(this, EnemyInnerPoints, RuinGeometryPalette.SlashInnerGold);
-        }
     }
 
     public override void _ExitTree()
@@ -260,7 +212,7 @@ public partial class EnemyProjectile : Area2D
 
     private bool TryRaycastWorldWall(PhysicsDirectSpaceState2D space, Vector2 from, Vector2 to, out Vector2 hitPos)
     {
-        var query = PhysicsRayQueryParameters2D.Create(from, to, collisionMask: 2);
+        var query = PhysicsRayQueryParameters2D.Create(from, to, collisionMask: CombatCollisionMasks.WorldGeometry);
         query.CollideWithBodies = true;
         query.CollideWithAreas = false;
         query.HitFromInside = true;
@@ -282,21 +234,65 @@ public partial class EnemyProjectile : Area2D
         out PlayerController? player,
         out Vector2 hitPos)
     {
+        return TrySweepTarget(
+            space,
+            from,
+            to,
+            collisionMask: CombatCollisionMasks.ActorBody,
+            collideWithAreas: false,
+            maxRayAttempts: 8,
+            matchCollider: ExtractEligiblePlayer,
+            out player,
+            out hitPos);
+    }
+
+    private bool TryFindEnemyHit(
+        PhysicsDirectSpaceState2D space,
+        Vector2 from,
+        Vector2 to,
+        out EnemyController? enemy,
+        out Vector2 hitPos)
+    {
+        return TrySweepTarget(
+            space,
+            from,
+            to,
+            collisionMask: CombatCollisionMasks.ReflectedEnemyQuery,
+            collideWithAreas: true,
+            maxRayAttempts: 12,
+            matchCollider: ExtractLivingEnemy,
+            out enemy,
+            out hitPos);
+    }
+
+    private bool TrySweepTarget<TTarget>(
+        PhysicsDirectSpaceState2D space,
+        Vector2 from,
+        Vector2 to,
+        uint collisionMask,
+        bool collideWithAreas,
+        int maxRayAttempts,
+        Func<GodotObject?, TTarget?> matchCollider,
+        out TTarget? target,
+        out Vector2 hitPos)
+        where TTarget : class
+    {
         var exclude = new Godot.Collections.Array<Rid>();
-        for (int attempt = 0; attempt < 8; attempt++)
+        Vector2 rayEnd = to + Direction * HitRadius;
+        for (int attempt = 0; attempt < maxRayAttempts; attempt++)
         {
-            var ray = PhysicsRayQueryParameters2D.Create(from, to + Direction * HitRadius, collisionMask: 1, exclude: exclude);
+            var ray = PhysicsRayQueryParameters2D.Create(from, rayEnd, collisionMask, exclude);
             ray.CollideWithBodies = true;
-            ray.CollideWithAreas = false;
+            ray.CollideWithAreas = collideWithAreas;
             ray.HitFromInside = true;
             Godot.Collections.Dictionary hit = space.IntersectRay(ray);
             if (hit.Count == 0)
                 break;
 
-            GodotObject colliderObj = hit["collider"].AsGodotObject();
-            if (colliderObj is PlayerController candidate && !_dodgedPlayerIds.Contains(candidate.GetInstanceId()))
+            TTarget? candidate = matchCollider(hit["collider"].AsGodotObject());
+            if (candidate is not null)
             {
-                player = candidate;
+                target = candidate;
                 hitPos = hit["position"].AsVector2();
                 return true;
             }
@@ -312,82 +308,32 @@ public partial class EnemyProjectile : Area2D
         {
             Shape = _sweepShape,
             Transform = new Transform2D(0f, to),
-            CollisionMask = 1,
+            CollisionMask = collisionMask,
             CollideWithBodies = true,
-            CollideWithAreas = false
+            CollideWithAreas = collideWithAreas
         };
         Godot.Collections.Array<Godot.Collections.Dictionary> overlaps = space.IntersectShape(shapeParams, 8);
         for (int i = 0; i < overlaps.Count; i++)
         {
-            GodotObject colliderObj = overlaps[i]["collider"].AsGodotObject();
-            if (colliderObj is PlayerController candidate && !_dodgedPlayerIds.Contains(candidate.GetInstanceId()))
+            TTarget? candidate = matchCollider(overlaps[i]["collider"].AsGodotObject());
+            if (candidate is not null)
             {
-                player = candidate;
+                target = candidate;
                 hitPos = to;
                 return true;
             }
         }
 
-        player = null;
+        target = null;
         hitPos = to;
         return false;
     }
 
-    private bool TryFindEnemyHit(
-        PhysicsDirectSpaceState2D space,
-        Vector2 from,
-        Vector2 to,
-        out EnemyController? enemy,
-        out Vector2 hitPos)
+    private PlayerController? ExtractEligiblePlayer(GodotObject? collider)
     {
-        var exclude = new Godot.Collections.Array<Rid>();
-        for (int attempt = 0; attempt < 12; attempt++)
-        {
-            var ray = PhysicsRayQueryParameters2D.Create(from, to + Direction * HitRadius, collisionMask: 1u | 4u, exclude: exclude);
-            ray.CollideWithBodies = true;
-            ray.CollideWithAreas = true;
-            ray.HitFromInside = true;
-            Godot.Collections.Dictionary hit = space.IntersectRay(ray);
-            if (hit.Count == 0)
-                break;
-
-            EnemyController? candidate = ExtractLivingEnemy(hit["collider"].AsGodotObject());
-            if (candidate is not null)
-            {
-                enemy = candidate;
-                hitPos = hit["position"].AsVector2();
-                return true;
-            }
-
-            if (hit.ContainsKey("rid"))
-                exclude.Add(hit["rid"].AsRid());
-            else
-                break;
-        }
-
-        var shapeParams = new PhysicsShapeQueryParameters2D
-        {
-            Shape = _sweepShape,
-            Transform = new Transform2D(0f, to),
-            CollisionMask = 1u | 4u,
-            CollideWithBodies = true,
-            CollideWithAreas = true
-        };
-        Godot.Collections.Array<Godot.Collections.Dictionary> overlaps = space.IntersectShape(shapeParams, 8);
-        for (int i = 0; i < overlaps.Count; i++)
-        {
-            EnemyController? candidate = ExtractLivingEnemy(overlaps[i]["collider"].AsGodotObject());
-            if (candidate is not null)
-            {
-                enemy = candidate;
-                hitPos = to;
-                return true;
-            }
-        }
-
-        enemy = null;
-        hitPos = to;
-        return false;
+        if (collider is PlayerController candidate && !_dodgedPlayerIds.Contains(candidate.GetInstanceId()))
+            return candidate;
+        return null;
     }
 
     private static EnemyController? ExtractLivingEnemy(GodotObject? collider)
@@ -442,9 +388,9 @@ public partial class EnemyProjectile : Area2D
             Direction = -Direction;
         }
 
-        CollisionMask = 2u | 4u;
+        CollisionMask = CombatCollisionMasks.ReflectedProjectileTargets;
         Rotation = Direction.Angle();
-        QueueRedraw();
+        Visual?.QueueRedraw();
     }
 
     private void HandleReflectedEnemyContact(EnemyController enemy, Vector2 attackOrigin)

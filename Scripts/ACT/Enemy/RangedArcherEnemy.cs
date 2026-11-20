@@ -52,6 +52,7 @@ public partial class RangedArcherEnemy : EnemyController
     private float _nextBackstepAllowedAt = -10f;
 
     public override AttackTokenPool AttackTokenPoolKind => AttackTokenPool.Ranged;
+    public override bool IsFacingLocked => base.IsFacingLocked || _isBackstepping;
     public Vector2 AimDirection => _aimDirection;
     public Vector2 MuzzleLocalOffset => new(Facing * 18f, -10f);
     public Vector2 MuzzleGlobalPosition => GlobalPosition + MuzzleLocalOffset;
@@ -76,10 +77,6 @@ public partial class RangedArcherEnemy : EnemyController
     {
         if (State is not (EnemyState.Idle or EnemyState.Chase))
             _isBackstepping = false;
-
-        if (_isBackstepping ||
-            State is EnemyState.Telegraph or EnemyState.Strike or EnemyState.Hitstun or EnemyState.ShieldBroken or EnemyState.Dead or EnemyState.Victory)
-            return;
 
         base.UpdateFacing();
     }
@@ -203,7 +200,7 @@ public partial class RangedArcherEnemy : EnemyController
         {
             Vector2 wallStart = GlobalPosition + new Vector2(0f, probeOffsetsY[i]);
             Vector2 wallEnd = wallStart + new Vector2(dir * WallProbeDistance, 0f);
-            var wallQuery = PhysicsRayQueryParameters2D.Create(wallStart, wallEnd, collisionMask: 2);
+            var wallQuery = PhysicsRayQueryParameters2D.Create(wallStart, wallEnd, collisionMask: CombatCollisionMasks.WorldGeometry);
             wallQuery.CollideWithBodies = true;
             wallQuery.CollideWithAreas = false;
             wallQuery.HitFromInside = true;
@@ -216,7 +213,7 @@ public partial class RangedArcherEnemy : EnemyController
         float probeX = GlobalPosition.X + dir * LedgeProbeHorizontalOffset;
         Vector2 ledgeStart = new(probeX, footY - 8f);
         Vector2 ledgeEnd = new(probeX, footY + LedgeProbeDownDepth);
-        var ledgeQuery = PhysicsRayQueryParameters2D.Create(ledgeStart, ledgeEnd, collisionMask: 2);
+        var ledgeQuery = PhysicsRayQueryParameters2D.Create(ledgeStart, ledgeEnd, collisionMask: CombatCollisionMasks.WorldGeometry);
         ledgeQuery.CollideWithBodies = true;
         ledgeQuery.CollideWithAreas = false;
         ledgeQuery.HitFromInside = true;
@@ -242,19 +239,19 @@ public partial class RangedArcherEnemy : EnemyController
     {
         PruneOwnedProjectiles();
 
+        Node? container = GetParent();
+        if (container is null || !GodotObject.IsInstanceValid(container))
+            return;
+
         Vector2 origin = MuzzleGlobalPosition;
         Vector2 dir = _aimDirection.LengthSquared() > 0.0001f
             ? _aimDirection.Normalized()
             : new Vector2(Facing, 0f);
 
-        Node? container = GetParent();
-        if (container is not null && GodotObject.IsInstanceValid(container))
-        {
-            var projectile = new EnemyProjectile { Name = $"ArcherProjectile_{Time.GetTicksUsec()}" };
-            projectile.Initialize(origin, dir, ProjectileSpeed, CurrentAttack.Damage, this);
-            container.AddChild(projectile);
-            _ownedProjectiles.Add(projectile);
-        }
+        var projectile = new EnemyProjectile { Name = $"ArcherProjectile_{Time.GetTicksUsec()}" };
+        projectile.Initialize(origin, dir, ProjectileSpeed, CurrentAttack.Damage, this);
+        container.AddChild(projectile);
+        _ownedProjectiles.Add(projectile);
 
         EmitProjectileFired(new EnemyProjectileFiredCue(origin, dir, CurrentAttack.Damage));
     }

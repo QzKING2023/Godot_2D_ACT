@@ -58,7 +58,6 @@ public partial class LockGateEncounterController : Node
     public bool IsWaitingForNextWave { get; private set; }
     public bool IsEncounterCleared { get; private set; }
     public string CurrentObjectiveMessage { get; private set; } = string.Empty;
-    public IReadOnlyList<EnemyController> ActiveWaveEnemies => _activeWaveEnemies;
 
     public event Action<EncounterWaveChangedCue>? WaveChanged;
 
@@ -104,8 +103,7 @@ public partial class LockGateEncounterController : Node
     public void Initialize(
         Node2D stage,
         PlayerController player,
-        StageEnemyRoster roster,
-        IReadOnlyList<EncounterWaveSpec>? waves = null)
+        StageEnemyRoster roster)
     {
         ArgumentNullException.ThrowIfNull(stage);
         ArgumentNullException.ThrowIfNull(player);
@@ -116,7 +114,7 @@ public partial class LockGateEncounterController : Node
         _stage = stage;
         _player = player;
         _roster = roster;
-        _waves = waves is { Count: > 0 } ? waves : CreateDefaultWaves();
+        _waves = CreateDefaultWaves();
         _initialized = true;
         _currentWaveIndex = -1;
         IsWaitingForNextWave = false;

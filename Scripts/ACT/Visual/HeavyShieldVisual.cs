@@ -65,9 +65,8 @@ public partial class HeavyShieldVisual : EnemyVisual
 
     private EnemyController? _subscribedEnemy;
     private float _deflectFlash;
-    private float _lastProcessRealSec = -1f;
 
-    public bool IsShieldRaised => BoundEnemy is { IsFrontalDefenseActive: true, IsDefeated: false };
+    public bool IsShieldRaised => BoundEnemy is { IsFrontalDefenseActive: true };
     public bool IsShieldDrooped => BoundEnemy is { IsShieldBroken: true };
     public bool HasVisibleShieldCrack => IsShieldDrooped;
     public float ShieldDroopOffsetY => IsShieldDrooped ? 16f : 0f;
@@ -81,17 +80,11 @@ public partial class HeavyShieldVisual : EnemyVisual
         SyncDeflectSubscription();
     }
 
-    public override void _Process(double delta)
+    protected override void OnVisualProcess(float realDt)
     {
         SyncDeflectSubscription();
-        float nowReal = Time.GetTicksMsec() / 1000f;
-        float realDt = _lastProcessRealSec < 0f ? (float)delta : Mathf.Clamp(nowReal - _lastProcessRealSec, 0f, 0.05f);
-        _lastProcessRealSec = nowReal;
-
         if (!IsVisualFrozen && _deflectFlash > 0f)
             _deflectFlash = Mathf.Max(0f, _deflectFlash - realDt);
-
-        base._Process(delta);
     }
 
     public override void _ExitTree()

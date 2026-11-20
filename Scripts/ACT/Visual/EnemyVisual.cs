@@ -97,6 +97,7 @@ public partial class EnemyVisual : Node2D
         _lastRealSec = nowReal;
 
         UpdateFacing();
+        OnVisualProcess(realDt);
 
         if (!_visualFrozen)
         {
@@ -106,6 +107,18 @@ public partial class EnemyVisual : Node2D
         }
 
         QueueRedraw();
+    }
+
+    protected virtual void OnVisualProcess(float realDt) { }
+
+    protected Vector2 ComputeMonolithBodyOrigin()
+    {
+        EnemyController e = _enemy!;
+        float floatY = e.IsDefeated ? 24f : Mathf.Sin(_realElapsedSec * 2.4f) * 3.5f;
+        float windup = e.State == EnemyState.Telegraph
+            ? -_facing * (8f + 14f * e.TelegraphProgress)
+            : (e.State == EnemyState.Strike ? _facing * 22f : 0f);
+        return new Vector2(windup, floatY);
     }
 
     private const float OverheadBarWidth = 58f;
@@ -255,11 +268,7 @@ public partial class EnemyVisual : Node2D
     private void DrawMonolithBody()
     {
         EnemyController e = _enemy!;
-        float floatY = e.IsDefeated ? 24f : Mathf.Sin(_realElapsedSec * 2.4f) * 3.5f;
-        float windup = e.State == EnemyState.Telegraph
-            ? -_facing * (8f + 14f * e.TelegraphProgress)
-            : (e.State == EnemyState.Strike ? _facing * 22f : 0f);
-        Vector2 bodyOrigin = new Vector2(windup, floatY);
+        Vector2 bodyOrigin = ComputeMonolithBodyOrigin();
         bool flash = _hitFlash > 0f;
 
         Color darkArmor = flash

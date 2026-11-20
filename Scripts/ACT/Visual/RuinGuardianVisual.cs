@@ -29,20 +29,16 @@ public partial class RuinGuardianVisual : EnemyVisual
         new(11f, -4f), new(26f, -14f), new(28f, -5f), new(15f, 4f)
     };
 
-    public bool IsOverloadVisualActive => BoundEnemy is RuinGuardianBoss { IsPhaseTwo: true, IsDefeated: false };
+    public bool IsOverloadVisualActive => BoundEnemy is RuinGuardianBoss { IsOverloadFissureActive: true };
 
     protected override void DrawBody()
     {
         base.DrawBody();
 
-        if (BoundEnemy is not RuinGuardianBoss boss || !boss.IsPhaseTwo || boss.IsDefeated)
+        if (BoundEnemy is not RuinGuardianBoss boss || !boss.IsOverloadFissureActive)
             return;
 
-        float floatY = Mathf.Sin(RealElapsedSec * 3.8f) * 3.5f;
-        float windup = boss.State == EnemyState.Telegraph
-            ? -Facing * (8f + 14f * boss.TelegraphProgress)
-            : (boss.State == EnemyState.Strike ? Facing * 22f : 0f);
-        Vector2 origin = new(windup, floatY);
+        Vector2 origin = ComputeMonolithBodyOrigin();
 
         float pulse = 0.78f + 0.22f * Mathf.Sin(RealElapsedSec * 12f);
         Color glow = IsHitFlashing

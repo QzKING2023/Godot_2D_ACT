@@ -23,12 +23,12 @@ public partial class RuinGuardianBoss : EnemyController
     public const float PhaseTwoTimingScale = 0.80f;
     public const float PhaseTwoComboDelayedAreaTelegraphScale = 0.60f;
 
-    private const float LungeStepSpeed = 580f;
-    private const float LungeStepMaxSeconds = 0.24f;
-    private const float LungeMaxDistance = 135f;
+    private const float LungeStepSpeed = 600f;
+    private const float LungeStepMaxSeconds = 0.26f;
+    private const float LungeMaxDistance = 145f;
     private const float LungeStopDistance = 135f;
-    private const float StrikeForwardBurstSpeed = 240f;
-    private const float CounterGrabLungeSpeed = 340f;
+    private const float StrikeForwardBurstSpeed = 360f;
+    private const float CounterGrabLungeSpeed = 420f;
 
     private const float BackstepSpeed = 460f;
     private const float BackstepDurationPhase1 = 0.22f;
@@ -54,11 +54,17 @@ public partial class RuinGuardianBoss : EnemyController
 
     public int Phase { get; private set; } = 1;
     public bool IsPhaseTwo => Phase >= 2;
+    public bool IsOverloadFissureActive => IsPhaseTwo && !IsDefeated;
     public bool IsOverloadTransitionActive => _motionMode == GuardianMotionMode.OverloadTransition;
     public override bool IsInvulnerable => IsOverloadTransitionActive;
+    public override bool IsFacingLocked =>
+        base.IsFacingLocked || _motionMode is GuardianMotionMode.Backstep or GuardianMotionMode.OverloadTransition;
     public bool HasArenaBounds => !float.IsInfinity(ArenaMinX) && !float.IsInfinity(ArenaMaxX) && ArenaMaxX > ArenaMinX;
     public bool IsLunging => _motionMode == GuardianMotionMode.LungeApproach;
     public bool IsBackstepping => _motionMode == GuardianMotionMode.Backstep;
+
+    protected override bool AllowContinuousStrikeResolution
+        => _currentAttackIsLungeNormal || _currentAttackIsCounterGrab;
 
     private GuardianMotionMode _motionMode = GuardianMotionMode.None;
     private int _motionDirection = -1;
@@ -113,26 +119,14 @@ public partial class RuinGuardianBoss : EnemyController
 
     protected override EnemyVisual CreateVisual() => new RuinGuardianVisual { Name = "Visual" };
 
-    protected override bool ShouldEnterHitstunOnDamage(in EnemyHitContext hit) => false;
+    protected override bool ShouldEnterHitstunOnDamage() => false;
 
-    protected override void OnDamagedPostApply(in EnemyHitContext hit, bool defeated)
+    protected override void OnDamagedPostApply(bool defeated)
     {
         if (defeated || IsPhaseTwo || Hp > MaxHp * 0.5f)
             return;
 
         TriggerPhaseTwoOverload();
-    }
-
-    protected override void UpdateFacing()
-    {
-        if (IsDefeated ||
-            State is EnemyState.Telegraph or EnemyState.Strike or EnemyState.Hitstun or EnemyState.ShieldBroken ||
-            _motionMode is GuardianMotionMode.Backstep or GuardianMotionMode.OverloadTransition)
-        {
-            return;
-        }
-
-        base.UpdateFacing();
     }
 
     protected override bool ProcessCustomPhysicsState(float dt)

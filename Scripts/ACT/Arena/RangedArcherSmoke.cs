@@ -201,9 +201,10 @@ public static partial class RangedArcherSmoke
 
             if (EnemyProjectile.CountActiveIn(stage) != 1 ||
                 projectile.Faction != ProjectileFaction.Enemy ||
-                !ReferenceEquals(projectile.SourceEnemy, archer))
+                !ReferenceEquals(projectile.SourceEnemy, archer) ||
+                projectile.Visual is not EnemyProjectileVisual)
             {
-                failures.Add($"spawned projectile metadata mismatch: count={EnemyProjectile.CountActiveIn(stage)} faction={projectile.Faction}");
+                failures.Add($"spawned projectile metadata/visual mismatch: count={EnemyProjectile.CountActiveIn(stage)} faction={projectile.Faction} visual={projectile.Visual?.GetType().Name ?? "null"}");
             }
 
             // Flight is physics-step driven (not _Process wall-clock)
@@ -240,6 +241,29 @@ public static partial class RangedArcherSmoke
                 failures.Add($"enemy projectile damaged ally! ally hp {ally.Hp}/{allyHpBefore}");
             if (!projectile.IsConsumed || projectile.GlobalPosition.X < 225f)
                 failures.Add($"enemy projectile did not shatter on wall: consumed={projectile.IsConsumed} x={projectile.GlobalPosition.X:0.0}");
+
+            // Unparented archer must NOT emit ProjectileFired when no valid container exists
+            var orphanArcher = new RangedArcherEnemy
+            {
+                Name = "OrphanArcherProbe",
+                Position = new Vector2(680f, ProbeFloorY - 42f),
+                AimTelegraphSeconds = 0f,
+                ShootCooldownSeconds = 3f
+            };
+            int orphanFiredEvents = 0;
+            orphanArcher.ProjectileFired += _ => orphanFiredEvents++;
+            try
+            {
+                orphanArcher.Bind(player, windows);
+                for (int i = 0; i < 6; i++)
+                    orphanArcher._PhysicsProcess(0.016);
+                if (orphanFiredEvents != 0)
+                    failures.Add($"unparented archer emitted ProjectileFired without spawning projectile (events={orphanFiredEvents})");
+            }
+            finally
+            {
+                orphanArcher.Free();
+            }
         }
         finally
         {
