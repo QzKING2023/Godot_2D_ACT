@@ -297,6 +297,9 @@ public static class FullChainSmoke
             failures.Add($"{spec.Path} missing PauseMenuLayer");
         if (instance.GetNodeOrNull<CombatAudioController>("CombatAudio") is null)
             failures.Add($"{spec.Path} missing CombatAudioController");
+        if (instance is FormalStage { HasEnemy: true } &&
+            instance.GetNodeOrNull<LockGateEncounterController>("LockGateEncounter") is null)
+            failures.Add($"{spec.Path} missing LockGateEncounterController");
     }
 
     private static void CheckStageTeardownResetsTimeScale(Node host, List<string> failures)
