@@ -30,6 +30,12 @@ public partial class TimeSlowManager : Node
 
     public override void _Process(double delta)
     {
+        if (IsInsideTree() && GetTree().Paused)
+        {
+            HandlePaused();
+            return;
+        }
+
         float now = Time.GetTicksMsec() / 1000f;
         float realDt = _lastMsec < 0 ? 0f : now - _lastMsec;
         _lastMsec = now;
@@ -87,12 +93,32 @@ public partial class TimeSlowManager : Node
         Resource = Config.MaxResource;
         Active = false;
         _activationArmed = true;
+        _lastMsec = -1f;
         Engine.TimeScale = 1.0;
         StateChanged?.Invoke("time resource reset");
+    }
+
+    public override void _Notification(int what)
+    {
+        if (what == NotificationPaused)
+            HandlePaused();
+        else if (what == NotificationUnpaused)
+            _lastMsec = -1f;
     }
 
     public override void _ExitTree()
     {
         Engine.TimeScale = 1.0; // never leak a slowed engine state
+    }
+
+    private void HandlePaused()
+    {
+        Engine.TimeScale = 1.0;
+        _lastMsec = -1f;
+        if (Active)
+        {
+            Active = false;
+            StateChanged?.Invoke("time slow ended: paused");
+        }
     }
 }

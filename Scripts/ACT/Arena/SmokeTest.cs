@@ -3,6 +3,7 @@ using Godot;
 using ACTSpike.ACT.Audio;
 using ACTSpike.ACT.Combat;
 using ACTSpike.ACT.Enemy;
+using ACTSpike.ACT.HUD;
 using ACTSpike.ACT.Player;
 using ACTSpike.ACT.Visual;
 
@@ -73,6 +74,7 @@ public partial class SmokeTest : Node
         CheckAttackContractDifferences();
         PresentationVisualSmoke.Check(this, Player, Enemy, TimeSlow, Fail);
         ProceduralAudioSmoke.Check(GetParent());
+        HudFlowSmoke.Check(GetParent(), Fail);
         GD.Print("[Smoke] running (ACT_SMOKE=1)");
     }
 
