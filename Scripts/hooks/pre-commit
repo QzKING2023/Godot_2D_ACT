@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+set -eu
+
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+if [ -z "$staged" ]; then
+  exit 0
+fi
+
+# Guard against accidentally staging local agent scratch directories
+if printf '%s\n' "$staged" | grep -Eq '^\.codex(-remote-attachments)?/'; then
+  echo "[pre-commit] FAIL: local .codex/ files are staged; unstage them before committing." >&2
+  exit 1
+fi
+
+# Run zero-warning C# build whenever C# project or source files are staged
+if printf '%s\n' "$staged" | grep -Eqi '\.(cs|csproj|sln)$'; then
+  echo "[pre-commit] Running zero-warning C# build..."
+  dotnet build "ACT Spike.csproj" --no-restore -warnaserror -nologo -v minimal
+fi

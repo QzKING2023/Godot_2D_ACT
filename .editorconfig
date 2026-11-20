@@ -1,0 +1,22 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = false
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{gd,tscn,tres,godot}]
+indent_style = tab
+
+[*.{md,yml,yaml,json}]
+indent_size = 2
+
+[*.ps1]
+end_of_line = crlf
+
+[Scripts/hooks/*]
+end_of_line = lf
+indent_size = 2

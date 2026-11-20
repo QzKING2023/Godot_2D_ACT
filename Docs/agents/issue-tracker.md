@@ -14,6 +14,12 @@
 
 在仓库克隆目录中运行时，`gh` 会根据 `git remote -v` 自动判断仓库。
 
+## 单票完成闭环
+
+- 单张子票（正文含 `## Parent` 或 `Part of #<parent>`）在通过 `verify.ps1` 与双轴 `/code-review` 并提交到本地分支后，立即执行 `gh issue close <number> --comment '...'` 关闭该票，评论中记录提交 SHA、审查结论与 `verify.ps1` 结果。
+- 校验近期提交引用的子票是否存在漏关单：运行 `powershell -ExecutionPolicy Bypass -File verify.ps1 -CheckIssues`。
+- 当前本地主开发分支为 `master`（未与远端早期 `origin/main` 合并），发起 `/code-review` 时显式指定本地基准 commit SHA，而非 `origin/main`。
+
 ### Windows PowerShell 5.1 使用提示
 
 - 读取 Issue / PR 时始终附加 `--json ...`，确保非交互式管道下稳定输出。
