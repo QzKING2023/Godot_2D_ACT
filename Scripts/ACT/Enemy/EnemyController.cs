@@ -16,7 +16,7 @@ public enum BossAttackKind
     DelayedArea
 }
 
-/// <summary>Resolved attack data used by the timestamp-driven boss state machine.</summary>
+/// <summary>Resolved attack data used by timestamp-driven enemy state machines.</summary>
 public readonly record struct BossAttackDefinition(
     BossAttackKind Kind,
     string Name,
@@ -26,12 +26,49 @@ public readonly record struct BossAttackDefinition(
     float ActiveSeconds,
     float RecoverySeconds,
     float Range,
-    float HazardRadius);
+    float HazardRadius)
+{
+    public static BossAttackDefinition CreateNormal(CombatWindowConfig windows)
+        => new(
+            BossAttackKind.Normal,
+            "NORMAL STRIKE",
+            "BLOCK or DODGE",
+            windows.NormalAttackDamage,
+            windows.NormalAttackTelegraphSeconds,
+            windows.NormalAttackActiveSeconds,
+            windows.NormalAttackRecoverySeconds,
+            windows.NormalAttackRange,
+            0f);
+
+    public static BossAttackDefinition CreateBreakGrab(CombatWindowConfig windows)
+        => new(
+            BossAttackKind.BreakGrab,
+            "BREAK GRAB",
+            "DODGE or K",
+            windows.BreakGrabDamage,
+            windows.BreakGrabTelegraphSeconds,
+            windows.BreakGrabActiveSeconds,
+            windows.BreakGrabRecoverySeconds,
+            windows.BreakGrabRange,
+            0f);
+
+    public static BossAttackDefinition CreateDelayedArea(CombatWindowConfig windows)
+        => new(
+            BossAttackKind.DelayedArea,
+            "DELAYED AREA",
+            "MOVE or TIME SLOW",
+            windows.DelayedAreaDamage,
+            windows.DelayedAreaTelegraphSeconds,
+            windows.DelayedAreaActiveSeconds,
+            windows.DelayedAreaRecoverySeconds,
+            0f,
+            windows.DelayedAreaRadius);
+}
 
 /// <summary>
-/// Boss attack flow: Chase/Idle -> Telegraph -> Strike -> Recover.
-/// Every attack uses real-time timestamps and a configured active/recovery
-/// window. Visual rendering and telegraphs are delegated to EnemyVisual.
+/// Generic enemy survival, directional hit-intake, real-timestamp state machine,
+/// hurtbox/body setup, overhead health bar hook, and read-only presentation event base.
+/// Boss-specific attack cycles and enemy archetype AI live in dedicated subclasses.
 /// </summary>
 public partial class EnemyController : CharacterBody2D
 {
@@ -41,13 +78,14 @@ public partial class EnemyController : CharacterBody2D
     [Export] public bool IsBoss { get; set; }
     [Export] public string DisplayName { get; set; } = "遗迹敌兵";
     public float Hp { get; private set; }
+    public int Facing { get; protected set; } = -1;
     public EnemyVisual Visual { get; private set; } = null!;
 
     public CombatWindowConfig Windows { get; set; } = new();
     public EnemyState State { get; private set; } = EnemyState.Spawn;
     public EnemyState PreviousChaseState { get; private set; } = EnemyState.Idle;
-    public BossAttackKind CurrentAttackKind { get; private set; } = BossAttackKind.Normal;
-    public BossAttackDefinition CurrentAttack => DefinitionFor(CurrentAttackKind);
+    public BossAttackDefinition CurrentAttack => _hasCurrentAttack ? _currentAttack : CreateNormalAttackDefinition();
+    public BossAttackKind CurrentAttackKind => CurrentAttack.Kind;
     public bool IsDefeated => State is EnemyState.Dead or EnemyState.Victory;
     public bool ShowsOverheadHealthBar => !IsBoss && !IsDefeated;
     /// <summary>Normalized 0..1 telegraph progress computed from real timestamps.</summary>
@@ -59,22 +97,28 @@ public partial class EnemyController : CharacterBody2D
     public event Action<EnemyTelegraphCue>? TelegraphStarted;
     public event Action<EnemyStrikeCue>? StrikeActivated;
     public event Action<EnemyDamagedCue>? Damaged;
+    public event Action<EnemyShieldDeflectedCue>? ShieldDeflected;
+    public event Action<EnemyProjectileFiredCue>? ProjectileFired;
+    public event Action<EnemyOverloadPulseCue>? OverloadPulseTriggered;
 
     public virtual bool IsInvulnerable => false;
+    public virtual bool HasFrontalDefense => false;
     public virtual bool TryDefend(AttackResolution incoming) => false;
 
     private PlayerController? _player;
     private TimeSlowManager? _timeSlow;
+    private BossAttackDefinition _currentAttack;
+    private bool _hasCurrentAttack;
     private float _stateEndsAt;
     private float _telegraphStartedAt;
     private float _nextAttackAllowedAt;
     private bool _strikeResolved;
-    private int _attackCycle;
 
     protected PlayerController? TargetPlayer => _player;
+    protected TimeSlowManager? BoundTimeSlow => _timeSlow;
     protected float Now => Time.GetTicksMsec() / 1000f;
     protected bool CanStartAttack => Now >= _nextAttackAllowedAt;
-    protected int AttackCycle => _attackCycle;
+    protected virtual Vector2 BodySize => new(52f, 100f);
 
     public override void _Ready()
     {
@@ -82,7 +126,7 @@ public partial class EnemyController : CharacterBody2D
         CollisionMask = 2;
         AddChild(new CollisionShape2D
         {
-            Shape = new RectangleShape2D { Size = new Vector2(52, 100) },
+            Shape = new RectangleShape2D { Size = BodySize },
             Name = "BodyShape"
         });
 
@@ -94,7 +138,7 @@ public partial class EnemyController : CharacterBody2D
             Monitoring = false,
             Monitorable = true
         };
-        hurtbox.AddChild(new CollisionShape2D { Shape = new RectangleShape2D { Size = new Vector2(52, 100) } });
+        hurtbox.AddChild(new CollisionShape2D { Shape = new RectangleShape2D { Size = BodySize } });
         hurtbox.AddToGroup("enemy_hurtbox");
         AddChild(hurtbox);
 
@@ -111,9 +155,12 @@ public partial class EnemyController : CharacterBody2D
         _player = player;
         Windows = windows;
         Hp = MaxHp;
-        _attackCycle = 0;
+        _hasCurrentAttack = false;
+        _strikeResolved = false;
         _nextAttackAllowedAt = Now + Windows.EnemyInitialDelaySeconds;
         _stateEndsAt = Now + Windows.BossSpawnSeconds;
+        OnReset();
+        UpdateFacing();
         Visual?.Bind(this, player);
         SetState(EnemyState.Spawn, "spawn");
     }
@@ -131,6 +178,7 @@ public partial class EnemyController : CharacterBody2D
     {
         var dt = (float)delta;
         if (!IsOnFloor()) Velocity = Velocity with { Y = Velocity.Y + Gravity * dt };
+        UpdateFacing();
 
         switch (State)
         {
@@ -172,6 +220,17 @@ public partial class EnemyController : CharacterBody2D
         MoveAndSlide();
     }
 
+    protected virtual void UpdateFacing()
+    {
+        if (IsDefeated || _player is null || !GodotObject.IsInstanceValid(_player))
+            return;
+        Facing = _player.GlobalPosition.X >= GlobalPosition.X ? 1 : -1;
+    }
+
+    protected void SetFacing(int facing) => Facing = facing >= 0 ? 1 : -1;
+
+    protected void SetNextAttackCooldown(float delaySeconds) => _nextAttackAllowedAt = Now + delaySeconds;
+
     protected virtual void ThinkIdleOrChase()
     {
         if (_player is null || !GodotObject.IsInstanceValid(_player))
@@ -185,7 +244,7 @@ public partial class EnemyController : CharacterBody2D
         bool inRange = distance <= Windows.EnemyAttackRange &&
                        Mathf.Abs(_player.GlobalPosition.Y - GlobalPosition.Y) < 90f;
 
-        if (inRange && Now >= _nextAttackAllowedAt)
+        if (inRange && CanStartAttack)
         {
             BeginTelegraph();
             return;
@@ -206,48 +265,47 @@ public partial class EnemyController : CharacterBody2D
         }
     }
 
-    protected virtual BossAttackKind SelectNextAttackKind()
-        => (BossAttackKind)(_attackCycle % 3);
+    protected virtual BossAttackDefinition SelectNextAttack() => CreateNormalAttackDefinition();
 
-    protected void BeginTelegraph()
+    protected void BeginTelegraph() => BeginTelegraph(SelectNextAttack());
+
+    protected void BeginTelegraph(BossAttackDefinition attack)
     {
-        CurrentAttackKind = SelectNextAttackKind();
-        _attackCycle++;
+        _currentAttack = attack;
+        _hasCurrentAttack = true;
         _strikeResolved = false;
         float now = Now;
         _telegraphStartedAt = now;
-        _stateEndsAt = now + CurrentAttack.TelegraphSeconds;
-        SetState(EnemyState.Telegraph, $"{CurrentAttack.Name} telegraph: {CurrentAttack.ResponseHint}");
-        TelegraphStarted?.Invoke(new EnemyTelegraphCue(CurrentAttack, GlobalPosition, now));
-        GD.Print($"[Enemy] telegraph {CurrentAttack.Name} | response {CurrentAttack.ResponseHint} | " +
-                 $"telegraph {CurrentAttack.TelegraphSeconds:0.00}s active {CurrentAttack.ActiveSeconds:0.00}s " +
-                 $"recovery {CurrentAttack.RecoverySeconds:0.00}s damage {CurrentAttack.Damage:0}");
+        _stateEndsAt = now + attack.TelegraphSeconds;
+        SetState(EnemyState.Telegraph, $"{attack.Name} telegraph: {attack.ResponseHint}");
+        TelegraphStarted?.Invoke(new EnemyTelegraphCue(attack, GlobalPosition, now));
+        GD.Print($"[Enemy] telegraph {attack.Name} | response {attack.ResponseHint} | " +
+                 $"telegraph {attack.TelegraphSeconds:0.00}s active {attack.ActiveSeconds:0.00}s " +
+                 $"recovery {attack.RecoverySeconds:0.00}s damage {attack.Damage:0}");
     }
 
-    private void BeginStrike()
+    protected virtual void BeginStrike()
     {
         _stateEndsAt = Now + CurrentAttack.ActiveSeconds;
         SetState(EnemyState.Strike, $"{CurrentAttack.Name} active");
         StrikeActivated?.Invoke(new EnemyStrikeCue(CurrentAttack, GlobalPosition));
     }
 
-    private void ResolveStrike()
+    protected virtual bool IsTargetInStrikeThreat() => IsInAttackRange(CurrentAttack.Range);
+
+    protected virtual void ResolveStrike()
     {
         _strikeResolved = true;
         if (_player is null || !GodotObject.IsInstanceValid(_player))
         {
-            _nextAttackAllowedAt = Now + Windows.EnemyAttackCooldown;
+            SetNextAttackCooldown(Windows.EnemyAttackCooldown);
             return;
         }
 
-        bool inRange = CurrentAttack.Kind == BossAttackKind.DelayedArea
-            ? _player.GlobalPosition.DistanceTo(GlobalPosition) <= CurrentAttack.HazardRadius
-            : IsInAttackRange(CurrentAttack.Range);
-
-        if (!inRange)
+        if (!IsTargetInStrikeThreat())
         {
             GD.Print($"[Enemy] {CurrentAttack.Name} whiffed (outside threat)");
-            _nextAttackAllowedAt = Now + Windows.EnemyAttackCooldown;
+            SetNextAttackCooldown(Windows.EnemyAttackCooldown);
             return;
         }
 
@@ -259,72 +317,98 @@ public partial class EnemyController : CharacterBody2D
         if (resolution.EnemyStaggered)
             EnterHitstun("staggered by perfect block");
 
-        _nextAttackAllowedAt = Now + Windows.EnemyAttackCooldown;
+        SetNextAttackCooldown(Windows.EnemyAttackCooldown);
     }
 
-    private bool IsInAttackRange(float range)
+    protected bool IsInAttackRange(float range)
         => _player is not null &&
            _player.GlobalPosition.DistanceTo(GlobalPosition) <= range &&
            Mathf.Abs(_player.GlobalPosition.Y - GlobalPosition.Y) < 110f;
 
-    public bool TakeDamage(float damage)
+    protected virtual bool ShouldDeflectHit(in EnemyHitContext hit)
+        => HasFrontalDefense && hit.IsFrontalStrike(GlobalPosition, Facing);
+
+    /// <summary>
+    /// Resolves an incoming directional strike against this enemy, supporting frontal shield
+    /// deflection and directional skill centerline back-piercing.
+    /// </summary>
+    public EnemyHitOutcome TakeHit(in EnemyHitContext hit)
     {
         if (State == EnemyState.Spawn)
         {
             GD.Print("[Enemy] damage ignored during spawn");
-            return false;
+            return EnemyHitOutcome.Ignored;
         }
-        if (State is EnemyState.Dead or EnemyState.Victory) return false;
-        if (IsInvulnerable) { GD.Print("[Enemy] damage ignored (invulnerable)"); return false; }
+        if (State is EnemyState.Dead or EnemyState.Victory)
+            return EnemyHitOutcome.Ignored;
+        if (IsInvulnerable)
+        {
+            GD.Print("[Enemy] damage ignored (invulnerable)");
+            return EnemyHitOutcome.Ignored;
+        }
 
-        Hp -= damage;
+        if (ShouldDeflectHit(hit))
+        {
+            GD.Print($"[Enemy] frontal shield deflected {(hit.IsDirectionalSkill ? "skill" : "attack")} ({hit.Damage:0})");
+            ShieldDeflected?.Invoke(new EnemyShieldDeflectedCue(hit, GlobalPosition, Facing));
+            return EnemyHitOutcome.Deflected;
+        }
+
+        Hp -= hit.Damage;
         if (Hp <= 0)
         {
             Hp = 0;
             _stateEndsAt = Now + Windows.VictoryDelaySeconds;
             SetState(EnemyState.Dead, "destroyed");
-            Damaged?.Invoke(new EnemyDamagedCue(damage, Hp, MaxHp, Defeated: true, GlobalPosition));
-            return true;
+            Damaged?.Invoke(new EnemyDamagedCue(hit.Damage, Hp, MaxHp, Defeated: true, GlobalPosition));
+            return EnemyHitOutcome.Damaged;
         }
-        EnterHitstun($"took {damage:0} damage");
-        Damaged?.Invoke(new EnemyDamagedCue(damage, Hp, MaxHp, Defeated: false, GlobalPosition));
-        return true;
+
+        EnterHitstun($"took {hit.Damage:0} damage");
+        Damaged?.Invoke(new EnemyDamagedCue(hit.Damage, Hp, MaxHp, Defeated: false, GlobalPosition));
+        return EnemyHitOutcome.Damaged;
     }
 
-    private void EnterHitstun(string reason)
+    /// <summary>Convenience wrapper for direct non-directional damage (bypasses frontal shields).</summary>
+    public bool TakeDamage(float damage)
+    {
+        var directHit = new EnemyHitContext(
+            Damage: damage,
+            AttackerOrigin: GlobalPosition - new Vector2(Facing, 0f),
+            MotionDirection: new Vector2(Facing, 0f),
+            IsDirectionalSkill: false,
+            CrossedTargetCenterline: false);
+        return TakeHit(directHit) == EnemyHitOutcome.Damaged;
+    }
+
+    protected void EnterHitstun(string reason)
     {
         _stateEndsAt = Now + Windows.HitstunSeconds;
         SetState(EnemyState.Hitstun, reason);
     }
+
+    protected void EmitProjectileFired(EnemyProjectileFiredCue cue) => ProjectileFired?.Invoke(cue);
+
+    protected void EmitOverloadPulseTriggered(EnemyOverloadPulseCue cue) => OverloadPulseTriggered?.Invoke(cue);
+
+    protected virtual void OnReset() { }
 
     public void ResetTo(Vector2 position)
     {
         Position = position;
         Velocity = Vector2.Zero;
         Hp = MaxHp;
-        _attackCycle = 0;
+        _hasCurrentAttack = false;
         _nextAttackAllowedAt = Now + Windows.EnemyInitialDelaySeconds;
         _stateEndsAt = Now + Windows.BossSpawnSeconds;
         _strikeResolved = false;
+        OnReset();
+        UpdateFacing();
         SetState(EnemyState.Spawn, "round reset");
     }
 
-    private BossAttackDefinition DefinitionFor(BossAttackKind kind)
-        => kind switch
-        {
-            BossAttackKind.BreakGrab => new BossAttackDefinition(
-                kind, "BREAK GRAB", "DODGE or K", Windows.BreakGrabDamage,
-                Windows.BreakGrabTelegraphSeconds, Windows.BreakGrabActiveSeconds,
-                Windows.BreakGrabRecoverySeconds, Windows.BreakGrabRange, 0f),
-            BossAttackKind.DelayedArea => new BossAttackDefinition(
-                kind, "DELAYED AREA", "MOVE or TIME SLOW", Windows.DelayedAreaDamage,
-                Windows.DelayedAreaTelegraphSeconds, Windows.DelayedAreaActiveSeconds,
-                Windows.DelayedAreaRecoverySeconds, 0f, Windows.DelayedAreaRadius),
-            _ => new BossAttackDefinition(
-                BossAttackKind.Normal, "NORMAL STRIKE", "BLOCK or DODGE", Windows.NormalAttackDamage,
-                Windows.NormalAttackTelegraphSeconds, Windows.NormalAttackActiveSeconds,
-                Windows.NormalAttackRecoverySeconds, Windows.NormalAttackRange, 0f)
-        };
+    protected BossAttackDefinition CreateNormalAttackDefinition()
+        => BossAttackDefinition.CreateNormal(Windows);
 
     protected void SetState(EnemyState next, string reason)
     {

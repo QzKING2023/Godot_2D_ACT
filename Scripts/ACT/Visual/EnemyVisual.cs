@@ -166,12 +166,10 @@ public partial class EnemyVisual : Node2D
 
     private void UpdateFacing()
     {
-        if (_enemy is null || _player is null || !GodotObject.IsInstanceValid(_player))
-            return;
-        if (_enemy.IsDefeated)
+        if (_enemy is null)
             return;
 
-        _facing = _player.GlobalPosition.X >= _enemy.GlobalPosition.X ? 1 : -1;
+        _facing = _enemy.Facing >= 0 ? 1 : -1;
     }
 
     private void DrawTelegraphOrStrike()

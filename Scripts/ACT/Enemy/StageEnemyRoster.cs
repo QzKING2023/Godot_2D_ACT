@@ -17,6 +17,9 @@ public partial class StageEnemyRoster : Node
         public required Action<EnemyTelegraphCue> OnTelegraph { get; init; }
         public required Action<EnemyStrikeCue> OnStrike { get; init; }
         public required Action<EnemyDamagedCue> OnDamaged { get; init; }
+        public required Action<EnemyShieldDeflectedCue> OnShieldDeflected { get; init; }
+        public required Action<EnemyProjectileFiredCue> OnProjectileFired { get; init; }
+        public required Action<EnemyOverloadPulseCue> OnOverloadPulseTriggered { get; init; }
         public required Action OnTreeExiting { get; init; }
     }
 
@@ -50,6 +53,9 @@ public partial class StageEnemyRoster : Node
     public event Action<RosterEnemyTelegraphCue>? EnemyTelegraphStarted;
     public event Action<RosterEnemyStrikeCue>? EnemyStrikeActivated;
     public event Action<RosterEnemyDamagedCue>? EnemyDamaged;
+    public event Action<RosterEnemyShieldDeflectedCue>? EnemyShieldDeflected;
+    public event Action<RosterEnemyProjectileFiredCue>? EnemyProjectileFired;
+    public event Action<RosterEnemyOverloadPulseCue>? EnemyOverloadPulseTriggered;
 
     /// <summary>Lifecycle event fired when an enemy leaves the roster (manual unregister, TreeExiting, or Clear).</summary>
     public event Action<EnemyController>? EnemyUnregistered;
@@ -83,12 +89,18 @@ public partial class StageEnemyRoster : Node
                     UpdatePrimaryBoss();
                 EnemyDamaged?.Invoke(new RosterEnemyDamagedCue(enemy, cue));
             },
+            OnShieldDeflected = cue => EnemyShieldDeflected?.Invoke(new RosterEnemyShieldDeflectedCue(enemy, cue)),
+            OnProjectileFired = cue => EnemyProjectileFired?.Invoke(new RosterEnemyProjectileFiredCue(enemy, cue)),
+            OnOverloadPulseTriggered = cue => EnemyOverloadPulseTriggered?.Invoke(new RosterEnemyOverloadPulseCue(enemy, cue)),
             OnTreeExiting = () => Unregister(enemy)
         };
 
         enemy.TelegraphStarted += binding.OnTelegraph;
         enemy.StrikeActivated += binding.OnStrike;
         enemy.Damaged += binding.OnDamaged;
+        enemy.ShieldDeflected += binding.OnShieldDeflected;
+        enemy.ProjectileFired += binding.OnProjectileFired;
+        enemy.OverloadPulseTriggered += binding.OnOverloadPulseTriggered;
         enemy.TreeExiting += binding.OnTreeExiting;
 
         if (_timeSlow is not null)
@@ -121,6 +133,9 @@ public partial class StageEnemyRoster : Node
         enemy.TelegraphStarted -= binding.OnTelegraph;
         enemy.StrikeActivated -= binding.OnStrike;
         enemy.Damaged -= binding.OnDamaged;
+        enemy.ShieldDeflected -= binding.OnShieldDeflected;
+        enemy.ProjectileFired -= binding.OnProjectileFired;
+        enemy.OverloadPulseTriggered -= binding.OnOverloadPulseTriggered;
         if (GodotObject.IsInstanceValid(enemy))
             enemy.TreeExiting -= binding.OnTreeExiting;
 

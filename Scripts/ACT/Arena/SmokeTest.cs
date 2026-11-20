@@ -26,7 +26,8 @@ public partial class SmokeTest : Node
         AwaitBreakTelegraph, AwaitBreakImpact,
         AwaitAreaTelegraph, AwaitAreaImpact,
         AwaitBlockTelegraph, AwaitBlockImpact,
-        TimeSlowProbe, TimeSlowRelease, KillBoss, AwaitBossHit
+        TimeSlowProbe, TimeSlowRelease, KillBoss, AwaitBossHit,
+        DirectionalSkillProbe
     }
 
     public PlayerController Player { get; set; } = null!;
@@ -56,6 +57,7 @@ public partial class SmokeTest : Node
     private bool _sawEnemyDefeated;
     private bool _skillProbeUsed;
     private bool _jumpProbeUsed;
+    private DirectionalCombatContractSmoke.DirectionalSkillPhysicsProbe? _directionalProbe;
 
     public override void _Ready()
     {
@@ -84,6 +86,7 @@ public partial class SmokeTest : Node
         ProceduralAudioSmoke.Check(GetParent());
         HudFlowSmoke.Check(GetParent(), Fail);
         MultiEnemyStageSmoke.Check(GetParent(), Fail);
+        DirectionalCombatContractSmoke.Check(GetParent(), Fail);
         GD.Print("[Smoke] running (ACT_SMOKE=1)");
     }
 
@@ -417,16 +420,8 @@ public partial class SmokeTest : Node
                     if (Player.IsDown)
                     {
                         GD.Print("[Smoke] PASS player death state");
-                        CheckPresentationEventsObserved();
-                        FullChainSmoke.CheckExitHygiene(GetParent(), TimeSlow, Fail);
-                        if (_failures.Count > 0)
-                        {
-                            Finish();
-                            break;
-                        }
-                        GD.Print($"[Smoke] ALL PASS ({_feedback.Count} combat events observed)");
-                        _resetProbePending = true;
-                        SetAction("reset_round", true);
+                        _directionalProbe = DirectionalCombatContractSmoke.StartLivePhysicsProbe(GetParent(), Fail);
+                        Enter(Phase.DirectionalSkillProbe, now);
                     }
                     else
                     {
@@ -463,6 +458,33 @@ public partial class SmokeTest : Node
                 else if (now - _phaseStart > 3f)
                 {
                     Fail("player attack did not damage boss during kill test");
+                    Finish();
+                }
+                break;
+
+            case Phase.DirectionalSkillProbe:
+                if (_directionalProbe is { IsCompleted: true })
+                {
+                    if (GodotObject.IsInstanceValid(_directionalProbe))
+                    {
+                        _directionalProbe.GetParent()?.RemoveChild(_directionalProbe);
+                        _directionalProbe.Free();
+                    }
+                    _directionalProbe = null;
+                    CheckPresentationEventsObserved();
+                    FullChainSmoke.CheckExitHygiene(GetParent(), TimeSlow, Fail);
+                    if (_failures.Count > 0)
+                    {
+                        Finish();
+                        break;
+                    }
+                    GD.Print($"[Smoke] ALL PASS ({_feedback.Count} combat events observed)");
+                    _resetProbePending = true;
+                    SetAction("reset_round", true);
+                }
+                else if (now - _phaseStart > 6f)
+                {
+                    Fail("directional skill physics probe timed out");
                     Finish();
                 }
                 break;

@@ -158,6 +158,10 @@ public partial class CombatAudioController : Node
 
     /// <summary>Maps a defense resolution to its audio cue, avoiding duplicate cues for normal dodges.</summary>
     public static bool TryMapDefenseCue(DefenseResult result, out CombatSfxId cue)
+        => TryMapDefenseCue(result, projectileReflected: false, out cue);
+
+    /// <summary>Maps a defense resolution (including projectile reflect) to its audio cue.</summary>
+    public static bool TryMapDefenseCue(DefenseResult result, bool projectileReflected, out CombatSfxId cue)
     {
         switch (result)
         {
@@ -168,7 +172,7 @@ public partial class CombatAudioController : Node
                 cue = CombatSfxId.BlockNormal;
                 return true;
             case DefenseResult.PerfectBlocked:
-                cue = CombatSfxId.BlockPerfect;
+                cue = projectileReflected ? CombatSfxId.ProjectileReflect : CombatSfxId.BlockPerfect;
                 return true;
             case DefenseResult.PerfectDodged:
                 cue = CombatSfxId.DodgePerfect;
@@ -257,7 +261,12 @@ public partial class CombatAudioController : Node
         _player.DodgeStarted += OnDodgeStarted;
         _player.DefenseResolved += OnDefenseResolved;
         if (_roster is not null && GodotObject.IsInstanceValid(_roster))
+        {
             _roster.EnemyTelegraphStarted += OnRosterTelegraphStarted;
+            _roster.EnemyShieldDeflected += OnRosterShieldDeflected;
+            _roster.EnemyProjectileFired += OnRosterProjectileFired;
+            _roster.EnemyOverloadPulseTriggered += OnRosterOverloadPulseTriggered;
+        }
         _timeSlow.ActiveChanged += OnTimeSlowActiveChanged;
 
         _subscribed = true;
@@ -275,7 +284,12 @@ public partial class CombatAudioController : Node
             _player.DefenseResolved -= OnDefenseResolved;
         }
         if (_roster is not null && GodotObject.IsInstanceValid(_roster))
+        {
             _roster.EnemyTelegraphStarted -= OnRosterTelegraphStarted;
+            _roster.EnemyShieldDeflected -= OnRosterShieldDeflected;
+            _roster.EnemyProjectileFired -= OnRosterProjectileFired;
+            _roster.EnemyOverloadPulseTriggered -= OnRosterOverloadPulseTriggered;
+        }
         if (_timeSlow is not null && GodotObject.IsInstanceValid(_timeSlow))
             _timeSlow.ActiveChanged -= OnTimeSlowActiveChanged;
 
@@ -293,12 +307,21 @@ public partial class CombatAudioController : Node
 
     private void OnDefenseResolved(PlayerDefenseCue cue)
     {
-        if (TryMapDefenseCue(cue.Result, out var sfx))
+        if (TryMapDefenseCue(cue.Result, cue.ProjectileReflected, out var sfx))
             Play(sfx);
     }
 
     private void OnRosterTelegraphStarted(RosterEnemyTelegraphCue rosterCue)
         => Play(MapTelegraphCue(rosterCue.Cue.Attack.Kind));
+
+    private void OnRosterShieldDeflected(RosterEnemyShieldDeflectedCue rosterCue)
+        => Play(CombatSfxId.ShieldDeflect);
+
+    private void OnRosterProjectileFired(RosterEnemyProjectileFiredCue rosterCue)
+        => Play(CombatSfxId.ProjectileFire);
+
+    private void OnRosterOverloadPulseTriggered(RosterEnemyOverloadPulseCue rosterCue)
+        => Play(CombatSfxId.BossOverloadPulse);
 
     private void OnTimeSlowActiveChanged(bool active)
         => Play(MapTimeSlowCue(active));

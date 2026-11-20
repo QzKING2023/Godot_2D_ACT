@@ -13,6 +13,8 @@ public partial class TrainingTarget : EnemyController
 {
     public const string DefaultDisplayName = "演练靶标";
 
+    private int _attackCycle;
+
     public TrainingTarget()
     {
         Name = "TrainingTarget";
@@ -24,8 +26,19 @@ public partial class TrainingTarget : EnemyController
     protected override EnemyVisual CreateVisual()
         => new TrainingTargetVisual { Name = "Visual" };
 
-    protected override BossAttackKind SelectNextAttackKind()
-        => AttackCycle % 2 == 0 ? BossAttackKind.Normal : BossAttackKind.BreakGrab;
+    protected override BossAttackDefinition SelectNextAttack()
+    {
+        bool useNormal = _attackCycle % 2 == 0;
+        _attackCycle++;
+        return useNormal
+            ? BossAttackDefinition.CreateNormal(Windows)
+            : BossAttackDefinition.CreateBreakGrab(Windows);
+    }
+
+    protected override void OnReset()
+    {
+        _attackCycle = 0;
+    }
 
     protected override void ThinkIdleOrChase()
     {

@@ -13,6 +13,13 @@ public enum DefenseResult
     Invulnerable
 }
 
+/// <summary>Explicitly distinguishes melee direct strikes from ranged projectiles.</summary>
+public enum AttackDeliveryKind
+{
+    Melee,
+    Projectile
+}
+
 /// <summary>Player defensive state at the moment an enemy strike lands. Timestamps are real seconds.</summary>
 public readonly record struct DefenseSnapshot(
     bool IsDodging,
@@ -28,7 +35,8 @@ public readonly record struct AttackResolution(
     float DamageToHp,
     float DamageToGuard,
     float TimeResourceRefund,
-    bool EnemyStaggered);
+    bool EnemyStaggered,
+    bool ProjectileReflected = false);
 
 /// <summary>
 /// Pure combat judgement. One place decides hit / block / perfect variants.
@@ -42,7 +50,8 @@ public static class CombatResolver
         float incomingDamage,
         CombatWindowConfig windows,
         TimeSlowConfig timeSlow,
-        BossAttackKind attackKind = BossAttackKind.Normal)
+        BossAttackKind attackKind = BossAttackKind.Normal,
+        AttackDeliveryKind deliveryKind = AttackDeliveryKind.Melee)
     {
         // Skill (and future i-frame sources) override everything.
         if (defense.IsInvulnerable)
@@ -73,7 +82,16 @@ public static class CombatResolver
         {
             bool perfect = defense.NowSec - defense.BlockHeldSinceSec <= windows.PerfectGuardSeconds;
             if (perfect)
-                return new AttackResolution(DefenseResult.PerfectBlocked, 0f, 0f, 0f, true);
+            {
+                bool isProjectile = deliveryKind == AttackDeliveryKind.Projectile;
+                return new AttackResolution(
+                    DefenseResult.PerfectBlocked,
+                    0f,
+                    0f,
+                    0f,
+                    EnemyStaggered: !isProjectile,
+                    ProjectileReflected: isProjectile);
+            }
             float chip = incomingDamage * windows.BlockChipRatio;
             return new AttackResolution(DefenseResult.Blocked, chip, windows.GuardDamagePerBlockedHit, 0f, false);
         }

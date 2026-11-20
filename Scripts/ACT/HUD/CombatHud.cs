@@ -154,7 +154,8 @@ public partial class CombatHud : Control
     {
         if (cue.Result == DefenseResult.PerfectBlocked)
         {
-            ShowEventBanner("完美格挡 · 震慑破势", RuinGeometryPalette.TelegraphNormal, 1.1f, 26);
+            string label = cue.ProjectileReflected ? "完美格挡 · 弹丸弹反" : "完美格挡 · 震慑破势";
+            ShowEventBanner(label, RuinGeometryPalette.TelegraphNormal, 1.1f, 26);
         }
         else if (cue.Result == DefenseResult.PerfectDodged)
         {

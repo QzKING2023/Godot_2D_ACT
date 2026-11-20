@@ -64,6 +64,10 @@ public static class ProceduralSfxBank
             CombatSfxId.TelegraphDelayedArea => (SynthesizeTelegraphDelayedArea(id), 0.74f, 0.020f, 0.090f),
             CombatSfxId.TimeSlowStart => (SynthesizeTimeSlowSweep(downward: true, id), 0.76f, 0.010f, 0.075f),
             CombatSfxId.TimeSlowEnd => (SynthesizeTimeSlowSweep(downward: false, id), 0.74f, 0.008f, 0.060f),
+            CombatSfxId.ShieldDeflect => (SynthesizeShieldDeflect(id), 0.78f, 0.002f, 0.055f),
+            CombatSfxId.ProjectileFire => (SynthesizeProjectileFire(id), 0.72f, 0.003f, 0.040f),
+            CombatSfxId.ProjectileReflect => (SynthesizeProjectileReflect(id), 0.84f, 0.002f, 0.080f),
+            CombatSfxId.BossOverloadPulse => (SynthesizeBossOverloadPulse(id), 0.86f, 0.012f, 0.120f),
             _ => throw new ArgumentOutOfRangeException(nameof(id), id, "Unsupported combat SFX cue")
         };
 
@@ -340,6 +344,162 @@ public static class ProceduralSfxBank
             float env = SmoothAttack(t, 0.08f) * MathF.Pow(1f - t, 0.70f);
             float air = filter.StepBandpass(NextWhiteNoise(ref rng), hz * 1.4f, 0.55f) * 0.22f;
             buf[i] = (MathF.Sin(pMain) * 0.68f + MathF.Sin(pSub) * 0.32f + air) * env;
+        }
+        return buf;
+    }
+
+    private static float[] SynthesizeShieldDeflect(CombatSfxId seedId)
+    {
+        const float duration = 0.22f;
+        int n = SampleCount(duration);
+        var buf = new float[n];
+        uint rng = SeedFor(seedId);
+        var filter = new StateVariableFilter();
+
+        ReadOnlySpan<float> partials = stackalloc float[] { 932.3f, 1894f, 2742f, 3920f };
+        Span<float> phases = stackalloc float[partials.Length];
+
+        for (int i = 0; i < n; i++)
+        {
+            float t = (float)i / n;
+            float dt = i / (float)SampleRate;
+            float pitchGlance = 1f + 0.06f * MathF.Exp(-dt * 42f);
+
+            float metallic = 0f;
+            for (int p = 0; p < partials.Length; p++)
+            {
+                phases[p] += TwoPi * (partials[p] * pitchGlance) / SampleRate;
+                float decay = 14f + p * 5.2f;
+                float amp = 0.34f / (1f + p * 0.38f);
+                metallic += MathF.Sin(phases[p]) * amp * MathF.Exp(-dt * decay);
+            }
+
+            float scrapeCutoff = Mathf.Lerp(3400f, 1400f, t);
+            float scrape = filter.StepBandpass(NextWhiteNoise(ref rng), scrapeCutoff, 0.52f)
+                           * MathF.Exp(-dt * 45f) * 0.62f;
+            buf[i] = metallic + scrape;
+        }
+        return buf;
+    }
+
+    private static float[] SynthesizeProjectileFire(CombatSfxId seedId)
+    {
+        const float duration = 0.18f;
+        int n = SampleCount(duration);
+        var buf = new float[n];
+        uint rng = SeedFor(seedId);
+        var filter = new StateVariableFilter();
+
+        float chirpPhase = 0f;
+        float bodyPhase = 0f;
+
+        for (int i = 0; i < n; i++)
+        {
+            float t = (float)i / n;
+            float dt = i / (float)SampleRate;
+
+            float chirpHz = 340f + 1310f * MathF.Exp(-dt * 28f);
+            chirpPhase += TwoPi * chirpHz / SampleRate;
+            float chirp = MathF.Sin(chirpPhase) * 0.58f * MathF.Exp(-dt * 18f);
+
+            float bodyHz = Mathf.Lerp(260f, 118f, t);
+            bodyPhase += TwoPi * bodyHz / SampleRate;
+            float body = MathF.Sin(bodyPhase) * 0.34f * MathF.Exp(-dt * 24f);
+
+            float snapCutoff = Mathf.Lerp(2400f, 880f, t);
+            float snap = filter.StepBandpass(NextWhiteNoise(ref rng), snapCutoff, 0.58f)
+                         * MathF.Exp(-dt * 34f) * 0.52f;
+            buf[i] = (chirp + body + snap) * SmoothAttack(t, 0.04f);
+        }
+        return buf;
+    }
+
+    private static float[] SynthesizeProjectileReflect(CombatSfxId seedId)
+    {
+        const float duration = 0.36f;
+        int n = SampleCount(duration);
+        var buf = new float[n];
+        uint rng = SeedFor(seedId);
+        var filter = new StateVariableFilter();
+
+        ReadOnlySpan<float> ringPartials = stackalloc float[] { 1046.5f, 1567.98f, 2093.0f, 3135.96f };
+        Span<float> ringPhases = stackalloc float[ringPartials.Length];
+        float counterPhase = 0f;
+
+        for (int i = 0; i < n; i++)
+        {
+            float dt = i / (float)SampleRate;
+
+            float ring = 0f;
+            for (int p = 0; p < ringPartials.Length; p++)
+            {
+                ringPhases[p] += TwoPi * ringPartials[p] / SampleRate;
+                ring += MathF.Sin(ringPhases[p]) * (0.28f / (1f + p * 0.42f)) * MathF.Exp(-dt * (6.2f + p * 2.1f));
+            }
+
+            float counter = 0f;
+            if (dt >= 0.035f)
+            {
+                float d = dt - 0.035f;
+                float u = Math.Clamp(d / (duration - 0.035f), 0f, 1f);
+                float sweepHz = 520f * MathF.Pow(1880f / 520f, MathF.Pow(u, 0.85f));
+                counterPhase += TwoPi * sweepHz / SampleRate;
+                float sweepEnv = SmoothAttack(u, 0.12f) * MathF.Pow(1f - u, 1.35f);
+                counter = MathF.Sin(counterPhase) * 0.52f * sweepEnv;
+            }
+
+            float spark = filter.StepBandpass(NextWhiteNoise(ref rng), 3100f, 0.55f)
+                          * MathF.Exp(-dt * 85f) * 0.48f;
+            buf[i] = ring + counter + spark;
+        }
+        return buf;
+    }
+
+    private static float[] SynthesizeBossOverloadPulse(CombatSfxId seedId)
+    {
+        const float duration = 0.58f;
+        int n = SampleCount(duration);
+        var buf = new float[n];
+        uint rng = SeedFor(seedId);
+        var filter = new StateVariableFilter();
+
+        float subPhase = 0f;
+        float corePhase = 0f;
+        float harmonicPhase = 0f;
+
+        for (int i = 0; i < n; i++)
+        {
+            float dt = i / (float)SampleRate;
+            float sample;
+
+            if (dt < 0.18f)
+            {
+                float u = dt / 0.18f;
+                float subHz = Mathf.Lerp(74f, 188f, u * u);
+                subPhase += TwoPi * subHz / SampleRate;
+                corePhase += TwoPi * (subHz * 2.02f) / SampleRate;
+                float swell = SmoothAttack(u, 0.25f) * (0.35f + 0.65f * u);
+                sample = (MathF.Sin(subPhase) * 0.72f + MathF.Sin(corePhase) * 0.34f) * swell;
+            }
+            else
+            {
+                float d = dt - 0.18f;
+                float u = Math.Clamp(d / (duration - 0.18f), 0f, 1f);
+                float dropHz = 42f + 128f * MathF.Exp(-d * 9.5f);
+                subPhase += TwoPi * dropHz / SampleRate;
+                corePhase += TwoPi * (dropHz * 1.5f) / SampleRate;
+                harmonicPhase += TwoPi * (dropHz * 3.15f) / SampleRate;
+
+                float boom = (MathF.Sin(subPhase) * 0.85f +
+                              MathF.Sin(corePhase) * 0.36f +
+                              MathF.Sin(harmonicPhase) * 0.18f) * MathF.Exp(-d * 4.6f);
+                float crackleCutoff = Mathf.Lerp(1750f, 320f, u);
+                float crackle = filter.StepBandpass(NextWhiteNoise(ref rng), crackleCutoff, 0.62f)
+                                * MathF.Exp(-d * 8.5f) * 0.45f;
+                sample = MathF.Tanh((boom + crackle) * 1.25f);
+            }
+
+            buf[i] = sample;
         }
         return buf;
     }

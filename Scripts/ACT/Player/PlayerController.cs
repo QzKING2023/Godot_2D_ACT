@@ -51,14 +51,19 @@ public partial class PlayerController : CharacterBody2D
     public event Action<PlayerDefenseCue>? DefenseResolved;
     public event Action<Vector2>? Landed;
 
+    private readonly record struct PendingSkillContact(EnemyController Enemy, int InitialFacing);
+
     private Area2D _attackHitbox = null!;
     private Node2D _skillAimIndicator = null!;
     private readonly HashSet<EnemyController> _swingHit = new();
+    private readonly List<PendingSkillContact> _pendingSkillContacts = new();
 
     // Input latches (edges captured in _Process, consumed in _PhysicsProcess).
     private bool _jumpQueued, _attackQueued, _dodgeQueued, _skillQueued;
     private bool _skillCharging;
     private Vector2 _skillAim;
+    private Vector2 _skillStartPosition;
+    private Vector2 _skillDirection = Vector2.Right;
     private bool _dodgeStartedInAir;
     private int _dodgeDirection;
     private Vector2 _moveAxis;
@@ -187,7 +192,11 @@ public partial class PlayerController : CharacterBody2D
                         ? new Vector2(_dodgeDirection * MoveSpeed, 0f)
                         : Vector2.Zero;
                 else if (State == PlayerState.Skill)
+                {
+                    FlushPendingSkillContacts();
+                    _attackHitbox.Monitoring = false;
                     Velocity = Vector2.Zero;
+                }
                 SetState(IsOnFloor() ? PlayerState.Idle : PlayerState.Jump, "action window ended");
             }
         }
@@ -228,6 +237,7 @@ public partial class PlayerController : CharacterBody2D
     {
         _stateEndsAt = now + Windows.AttackActiveSeconds;
         _swingHit.Clear();
+        _pendingSkillContacts.Clear();
         _attackHitbox.Position = new Vector2(Facing * 55f, 0);
         _attackHitbox.Monitoring = true;
         SetState(PlayerState.Attack, "attack");
@@ -272,8 +282,11 @@ public partial class PlayerController : CharacterBody2D
         // Y skill follows the full aim vector: keyboard gives 8 directions,
         // while an analog stick preserves its continuous 360-degree angle.
         // Gravity remains suspended for the duration of the skill.
+        _skillStartPosition = GlobalPosition;
+        _skillDirection = dir;
         Velocity = dir * Windows.SkillSpeed;
         _swingHit.Clear();
+        _pendingSkillContacts.Clear();
         _attackHitbox.Position = Vector2.Zero;
         _attackHitbox.Monitoring = true;
         SetState(PlayerState.Skill, $"skill dash ({dir.X:0.00},{dir.Y:0.00})");
@@ -353,17 +366,136 @@ public partial class PlayerController : CharacterBody2D
     private void ApplyHitboxPolling(float now)
     {
         if (!_attackHitbox.Monitoring) return;
+
+        bool isSkill = State == PlayerState.Skill;
         foreach (var area in _attackHitbox.GetOverlappingAreas())
         {
             if (!area.IsInGroup("enemy_hurtbox")) continue;
             if (area.GetParent() is not EnemyController enemy || _swingHit.Contains(enemy)) continue;
-            _swingHit.Add(enemy);
-            float dmg = State == PlayerState.Skill ? SkillDamage : AttackDamage;
-            bool isSkill = State == PlayerState.Skill;
-            bool applied = enemy.TakeDamage(dmg);
-            if (applied)
-                AttackLanded?.Invoke(new PlayerHitCue(isSkill, dmg, enemy.GlobalPosition));
-            EmitFeedback($"{(isSkill ? "Skill" : "Attack")} hit enemy (-{dmg:0})");
+
+            if (isSkill)
+            {
+                if (ShouldDeferFrontalSkillContact(enemy, enemy.Facing))
+                {
+                    if (!HasPendingSkillContact(enemy))
+                        _pendingSkillContacts.Add(new PendingSkillContact(enemy, enemy.Facing));
+                }
+                else
+                {
+                    RemovePendingSkillContact(enemy);
+                    ResolveSkillHitOnEnemy(enemy, enemy.Facing);
+                }
+            }
+            else
+            {
+                _swingHit.Add(enemy);
+                var hit = new EnemyHitContext(
+                    Damage: AttackDamage,
+                    AttackerOrigin: GlobalPosition,
+                    MotionDirection: new Vector2(Facing, 0f),
+                    IsDirectionalSkill: false,
+                    CrossedTargetCenterline: false);
+                DispatchHitToEnemy(enemy, hit);
+            }
+        }
+
+        if (isSkill && _pendingSkillContacts.Count > 0)
+            ResolveCrossedPendingSkillContacts();
+    }
+
+    private bool ShouldDeferFrontalSkillContact(EnemyController enemy, int referenceFacing)
+        => enemy.HasFrontalDefense &&
+           !EnemyHitContext.IsOnBackSide(_skillStartPosition.X, enemy.GlobalPosition.X, referenceFacing) &&
+           !EnemyHitContext.HasCrossedHorizontalCenterline(_skillStartPosition.X, GlobalPosition.X, enemy.GlobalPosition.X, referenceFacing);
+
+    private bool HasPendingSkillContact(EnemyController enemy)
+    {
+        for (int i = 0; i < _pendingSkillContacts.Count; i++)
+        {
+            if (ReferenceEquals(_pendingSkillContacts[i].Enemy, enemy))
+                return true;
+        }
+        return false;
+    }
+
+    private void RemovePendingSkillContact(EnemyController enemy)
+    {
+        for (int i = _pendingSkillContacts.Count - 1; i >= 0; i--)
+        {
+            if (ReferenceEquals(_pendingSkillContacts[i].Enemy, enemy))
+                _pendingSkillContacts.RemoveAt(i);
+        }
+    }
+
+    private void ResolveCrossedPendingSkillContacts()
+    {
+        for (int i = _pendingSkillContacts.Count - 1; i >= 0; i--)
+        {
+            PendingSkillContact pending = _pendingSkillContacts[i];
+            EnemyController enemy = pending.Enemy;
+            if (!GodotObject.IsInstanceValid(enemy) || enemy.IsDefeated || _swingHit.Contains(enemy))
+            {
+                _pendingSkillContacts.RemoveAt(i);
+                continue;
+            }
+
+            bool crossed = EnemyHitContext.HasCrossedHorizontalCenterline(
+                _skillStartPosition.X,
+                GlobalPosition.X,
+                enemy.GlobalPosition.X,
+                pending.InitialFacing);
+            if (!enemy.HasFrontalDefense || crossed)
+            {
+                _pendingSkillContacts.RemoveAt(i);
+                ResolveSkillHitOnEnemy(enemy, pending.InitialFacing);
+            }
+        }
+    }
+
+    private void FlushPendingSkillContacts()
+    {
+        if (_pendingSkillContacts.Count == 0) return;
+        for (int i = 0; i < _pendingSkillContacts.Count; i++)
+        {
+            PendingSkillContact pending = _pendingSkillContacts[i];
+            EnemyController enemy = pending.Enemy;
+            if (!GodotObject.IsInstanceValid(enemy) || enemy.IsDefeated || _swingHit.Contains(enemy))
+                continue;
+            ResolveSkillHitOnEnemy(enemy, pending.InitialFacing);
+        }
+        _pendingSkillContacts.Clear();
+    }
+
+    private void ResolveSkillHitOnEnemy(EnemyController enemy, int referenceFacing)
+    {
+        _swingHit.Add(enemy);
+        bool enteredFromBack = EnemyHitContext.IsOnBackSide(_skillStartPosition.X, enemy.GlobalPosition.X, referenceFacing);
+        bool crossedCenterline = EnemyHitContext.HasCrossedHorizontalCenterline(
+            _skillStartPosition.X,
+            GlobalPosition.X,
+            enemy.GlobalPosition.X,
+            referenceFacing);
+        Vector2 origin = enteredFromBack ? _skillStartPosition : GlobalPosition;
+        var hit = new EnemyHitContext(
+            Damage: SkillDamage,
+            AttackerOrigin: origin,
+            MotionDirection: _skillDirection,
+            IsDirectionalSkill: true,
+            CrossedTargetCenterline: crossedCenterline);
+        DispatchHitToEnemy(enemy, hit);
+    }
+
+    private void DispatchHitToEnemy(EnemyController enemy, in EnemyHitContext hit)
+    {
+        EnemyHitOutcome outcome = enemy.TakeHit(hit);
+        if (outcome == EnemyHitOutcome.Damaged)
+        {
+            AttackLanded?.Invoke(new PlayerHitCue(hit.IsDirectionalSkill, hit.Damage, enemy.GlobalPosition));
+            EmitFeedback($"{(hit.IsDirectionalSkill ? "Skill" : "Attack")} hit enemy (-{hit.Damage:0})");
+        }
+        else if (outcome == EnemyHitOutcome.Deflected)
+        {
+            EmitFeedback("Shield deflected attack");
         }
     }
 
@@ -383,17 +515,28 @@ public partial class PlayerController : CharacterBody2D
     }
 
     public bool TryReceiveEnemyAttack(float incomingDamage, out AttackResolution resolution)
-        => TryReceiveEnemyAttack(incomingDamage, BossAttackKind.Normal, out resolution);
+        => TryReceiveEnemyAttack(incomingDamage, BossAttackKind.Normal, AttackDeliveryKind.Melee, out resolution);
 
     public bool TryReceiveEnemyAttack(float incomingDamage, BossAttackKind attackKind, out AttackResolution resolution)
+        => TryReceiveEnemyAttack(incomingDamage, attackKind, AttackDeliveryKind.Melee, out resolution);
+
+    public bool TryReceiveEnemyAttack(
+        float incomingDamage,
+        BossAttackKind attackKind,
+        AttackDeliveryKind deliveryKind,
+        out AttackResolution resolution)
     {
         var snapshot = BuildDefenseSnapshot();
-        resolution = CombatResolver.Resolve(snapshot, incomingDamage, Windows, TimeSlow, attackKind);
-        ApplyResolution(incomingDamage, attackKind, resolution);
+        resolution = CombatResolver.Resolve(snapshot, incomingDamage, Windows, TimeSlow, attackKind, deliveryKind);
+        ApplyResolution(incomingDamage, attackKind, deliveryKind, resolution);
         return resolution.Result != DefenseResult.Hit; // false = clean hit landed
     }
 
-    private void ApplyResolution(float incomingDamage, BossAttackKind attackKind, in AttackResolution resolution)
+    private void ApplyResolution(
+        float incomingDamage,
+        BossAttackKind attackKind,
+        AttackDeliveryKind deliveryKind,
+        in AttackResolution resolution)
     {
         bool guardBroken = false;
         switch (resolution.Result)
@@ -409,7 +552,9 @@ public partial class PlayerController : CharacterBody2D
                 EmitFeedback("skill i-frames");
                 break;
             case DefenseResult.PerfectBlocked:
-                EmitFeedback("PERFECT BLOCK (enemy staggered)");
+                EmitFeedback(resolution.ProjectileReflected
+                    ? "PERFECT BLOCK (projectile reflected)"
+                    : "PERFECT BLOCK (enemy staggered)");
                 break;
             case DefenseResult.Blocked:
                 Guard = Mathf.Max(0, Guard - resolution.DamageToGuard);
@@ -438,13 +583,16 @@ public partial class PlayerController : CharacterBody2D
             DamageToGuard: resolution.DamageToGuard,
             GuardBroken: guardBroken,
             IsDown: IsDown,
-            Position: GlobalPosition));
+            Position: GlobalPosition,
+            DeliveryKind: deliveryKind,
+            ProjectileReflected: resolution.ProjectileReflected));
     }
 
     private void EnterHitstun(string reason)
     {
         _stateEndsAt = Now + Windows.HitstunSeconds;
         _attackHitbox.Monitoring = false;
+        _pendingSkillContacts.Clear();
         SetState(PlayerState.Hitstun, reason);
         if (Hp <= 0 && !IsDown)
         {
@@ -460,6 +608,8 @@ public partial class PlayerController : CharacterBody2D
         Hp = MaxHp; Guard = MaxGuard;
         IsDown = false;
         _attackHitbox.Monitoring = false;
+        _swingHit.Clear();
+        _pendingSkillContacts.Clear();
         _stateEndsAt = -10f;
         _invulnerableUntil = -10f;
         _jumpQueued = _attackQueued = _dodgeQueued = _skillQueued = _skillCharging = false;
@@ -472,6 +622,9 @@ public partial class PlayerController : CharacterBody2D
         Hp = Mathf.Clamp(hp, 1f, MaxHp);
         Guard = MaxGuard;
         IsDown = false;
+        _attackHitbox.Monitoring = false;
+        _swingHit.Clear();
+        _pendingSkillContacts.Clear();
         SetState(PlayerState.Idle, "scene transition");
     }
 

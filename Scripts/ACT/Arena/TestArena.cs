@@ -54,11 +54,10 @@ public partial class TestArena : Node2D
         if (GetNodeOrNull<RunSession>("/root/RunSession") is { HasPlayerState: true } session)
             _player.RestoreHp(session.PlayerHp);
 
-        _enemy = new EnemyController
+        _enemy = new RuinGuardianBoss
         {
             Name = "Boss",
-            DisplayName = "遗迹守卫 · 巨构核心",
-            IsBoss = true,
+            DisplayName = RuinGuardianBoss.DefaultDisplayName,
             Position = EnemySpawn,
             MaxHp = 6f,
             Windows = _windows

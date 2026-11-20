@@ -9,11 +9,11 @@ using ACTSpike.ACT.Player;
 namespace ACTSpike.ACT.Audio;
 
 /// <summary>
-/// Headless smoke verifier for procedural 16-bit PCM synthesis and read-only audio controller wiring.
+/// Headless smoke verifier for procedural 16-bit PCM synthesis (17 cues) and read-only audio controller wiring.
 /// </summary>
-public static class ProceduralAudioSmoke
+public static partial class ProceduralAudioSmoke
 {
-    private const int ExpectedCueCount = 13;
+    private const int ExpectedCueCount = 17;
     private const int MinSampleCount = 1100;
     private const int MaxSampleCount = ProceduralSfxBank.SampleRate * 2;
     private const short MinPeakAmplitude = 2000;
@@ -102,14 +102,12 @@ public static class ProceduralAudioSmoke
             }
         }
 
-        CheckDistinct(pcmByCue, CombatSfxId.PlayerSlash, CombatSfxId.PlayerSkillDash, failures);
-        CheckDistinct(pcmByCue, CombatSfxId.PlayerHit, CombatSfxId.PlayerDamaged, failures);
-        CheckDistinct(pcmByCue, CombatSfxId.BlockNormal, CombatSfxId.BlockPerfect, failures);
-        CheckDistinct(pcmByCue, CombatSfxId.DodgeNormal, CombatSfxId.DodgePerfect, failures);
-        CheckDistinct(pcmByCue, CombatSfxId.TelegraphNormal, CombatSfxId.TelegraphBreakGrab, failures);
-        CheckDistinct(pcmByCue, CombatSfxId.TelegraphNormal, CombatSfxId.TelegraphDelayedArea, failures);
-        CheckDistinct(pcmByCue, CombatSfxId.TelegraphBreakGrab, CombatSfxId.TelegraphDelayedArea, failures);
-        CheckDistinct(pcmByCue, CombatSfxId.TimeSlowStart, CombatSfxId.TimeSlowEnd, failures);
+        // Verify pairwise waveform distinctness across all 17 cues.
+        for (int i = 0; i < cues.Length; i++)
+        {
+            for (int j = i + 1; j < cues.Length; j++)
+                CheckDistinct(pcmByCue, cues[i], cues[j], failures);
+        }
     }
 
     private static void CheckControllerWiring(Node arena, CombatSfxId[] cues, List<string> failures)
@@ -135,11 +133,16 @@ public static class ProceduralAudioSmoke
         if (playerChildren != liveController.PoolCount)
             failures.Add($"pool child count mismatch: {playerChildren} AudioStreamPlayers vs PoolCount {liveController.PoolCount}");
 
-        // Verify cue mapping contracts for defense results, telegraphs, and time slow messages.
+        // Verify cue mapping contracts for defense results (melee & projectile reflect), telegraphs, and time slow.
         if (!CombatAudioController.TryMapDefenseCue(DefenseResult.Blocked, out var blockCue) || blockCue != CombatSfxId.BlockNormal)
             failures.Add("Blocked defense cue mismatch");
         if (!CombatAudioController.TryMapDefenseCue(DefenseResult.PerfectBlocked, out var pBlockCue) || pBlockCue != CombatSfxId.BlockPerfect)
-            failures.Add("PerfectBlocked defense cue mismatch");
+            failures.Add("PerfectBlocked melee defense cue mismatch");
+        if (!CombatAudioController.TryMapDefenseCue(DefenseResult.PerfectBlocked, projectileReflected: true, out var reflectCue) ||
+            reflectCue != CombatSfxId.ProjectileReflect)
+        {
+            failures.Add("PerfectBlocked projectile reflect defense cue mismatch");
+        }
         if (!CombatAudioController.TryMapDefenseCue(DefenseResult.PerfectDodged, out var pDodgeCue) || pDodgeCue != CombatSfxId.DodgePerfect)
             failures.Add("PerfectDodged defense cue mismatch");
         if (!CombatAudioController.TryMapDefenseCue(DefenseResult.Hit, out var hitCue) || hitCue != CombatSfxId.PlayerDamaged)
@@ -159,7 +162,7 @@ public static class ProceduralAudioSmoke
         if (CombatAudioController.MapTimeSlowCue(false) != CombatSfxId.TimeSlowEnd)
             failures.Add("TimeSlow inactive cue mapping mismatch");
 
-        // Verify null-enemy attachment (TutorialStage / FormalStage), VolumeDb propagation, ActiveChanged wiring, and clean _ExitTree teardown.
+        // Verify null-enemy attachment, VolumeDb propagation, ActiveChanged wiring, all 4 Phase 2 event bindings, and _ExitTree teardown.
         var player = arena.GetNodeOrNull<PlayerController>("Player");
         var timeSlow = arena.GetNodeOrNull<TimeSlowManager>("TimeSlowManager");
         if (player is null || timeSlow is null)
@@ -168,7 +171,7 @@ public static class ProceduralAudioSmoke
             return;
         }
 
-        var probeHost = new Node { Name = "AudioNullEnemyProbe" };
+        var probeHost = new Node2D { Name = "AudioNullEnemyProbe" };
         arena.AddChild(probeHost);
         var isolatedTimeSlow = new TimeSlowManager { Name = "AudioTimeSlowProbe", Config = new TimeSlowConfig() };
         probeHost.AddChild(isolatedTimeSlow);
@@ -221,6 +224,116 @@ public static class ProceduralAudioSmoke
         if (probeController.IsSubscribed)
             failures.Add("CombatAudioController failed to unsubscribe in _ExitTree");
         probeHost.Free();
+
+        CheckPhase2EventAudioBindings(arena, failures);
+    }
+
+    private static void CheckPhase2EventAudioBindings(Node arena, List<string> failures)
+    {
+        var probeStage = new Node2D { Name = "AudioPhase2EventProbe" };
+        var floor = new StaticBody2D { CollisionLayer = 2, CollisionMask = 0, Position = new Vector2(260f, 580f) };
+        floor.AddChild(new CollisionShape2D { Shape = new RectangleShape2D { Size = new Vector2(400f, 40f) } });
+        probeStage.AddChild(floor);
+
+        var windows = new CombatWindowConfig { BossSpawnSeconds = 0f, PerfectGuardSeconds = 0.5f };
+        var timeSlow = new TimeSlowManager { Name = "ProbeTimeSlow", Config = new TimeSlowConfig() };
+        var probePlayer = new PlayerController
+        {
+            Name = "ProbePlayer",
+            Position = new Vector2(260f, 537f),
+            Windows = windows,
+            TimeSlow = timeSlow.Config
+        };
+        var roster = new StageEnemyRoster { Name = "ProbeRoster" };
+        var probeEnemy = new AudioEventProbeEnemy
+        {
+            Name = "AudioEventProbeEnemy",
+            Position = new Vector2(420f, 510f),
+            MaxHp = 10f
+        };
+
+        probeStage.AddChild(timeSlow);
+        probeStage.AddChild(probePlayer);
+        probeStage.AddChild(roster);
+        probeStage.AddChild(probeEnemy);
+        arena.AddChild(probeStage);
+
+        var audio = CombatAudioController.AttachRoster(probeStage, probePlayer, roster, timeSlow);
+
+        try
+        {
+            probePlayer._PhysicsProcess(0.05);
+            probeEnemy.Bind(probePlayer, windows);
+            probeEnemy._PhysicsProcess(0.016); // Spawn -> Idle
+            roster.Register(probeEnemy);
+
+            // 1. ShieldDeflected -> CombatSfxId.ShieldDeflect
+            int countBefore = audio.PlayedCueCount;
+            var frontalHit = new EnemyHitContext(1f, new Vector2(320f, 510f), Vector2.Right);
+            EnemyHitOutcome outcome = probeEnemy.TakeHit(frontalHit);
+            if (outcome != EnemyHitOutcome.Deflected ||
+                audio.PlayedCueCount != countBefore + 1 ||
+                audio.LastCue != CombatSfxId.ShieldDeflect)
+            {
+                failures.Add($"ShieldDeflected audio binding mismatch: outcome={outcome} cue={audio.LastCue}");
+            }
+
+            // 2. ProjectileFired -> CombatSfxId.ProjectileFire
+            countBefore = audio.PlayedCueCount;
+            probeEnemy.EmitProbeProjectileFire();
+            if (audio.PlayedCueCount != countBefore + 1 || audio.LastCue != CombatSfxId.ProjectileFire)
+                failures.Add($"ProjectileFired audio binding mismatch: cue={audio.LastCue}");
+
+            // 3. OverloadPulseTriggered -> CombatSfxId.BossOverloadPulse
+            countBefore = audio.PlayedCueCount;
+            probeEnemy.EmitProbeOverloadPulse();
+            if (audio.PlayedCueCount != countBefore + 1 || audio.LastCue != CombatSfxId.BossOverloadPulse)
+                failures.Add($"OverloadPulseTriggered audio binding mismatch: cue={audio.LastCue}");
+
+            // 4. PlayerDefenseCue(PerfectBlocked + ProjectileReflected) -> CombatSfxId.ProjectileReflect
+            countBefore = audio.PlayedCueCount;
+            Godot.Input.ParseInputEvent(new InputEventAction { Action = "block", Pressed = true });
+            Godot.Input.FlushBufferedEvents();
+            probePlayer._PhysicsProcess(0.016);
+            probePlayer.TryReceiveEnemyAttack(15f, BossAttackKind.Normal, AttackDeliveryKind.Projectile, out AttackResolution reflectRes);
+            Godot.Input.ParseInputEvent(new InputEventAction { Action = "block", Pressed = false });
+            Godot.Input.FlushBufferedEvents();
+            if (!reflectRes.ProjectileReflected ||
+                audio.PlayedCueCount != countBefore + 1 ||
+                audio.LastCue != CombatSfxId.ProjectileReflect)
+            {
+                failures.Add($"ProjectileReflect audio binding mismatch: reflected={reflectRes.ProjectileReflected} cue={audio.LastCue}");
+            }
+
+            // 5. Removing enemy unbinds new roster cues cleanly (zero stale playback)
+            probeStage.RemoveChild(probeEnemy);
+            int afterRemove = audio.PlayedCueCount;
+            probeEnemy.EmitProbeProjectileFire();
+            probeEnemy.EmitProbeOverloadPulse();
+            if (audio.PlayedCueCount != afterRemove)
+                failures.Add("roster leaked Phase 2 enemy audio subscriptions after TreeExiting");
+            probeEnemy.Free();
+        }
+        finally
+        {
+            Godot.Input.ParseInputEvent(new InputEventAction { Action = "block", Pressed = false });
+            Godot.Input.FlushBufferedEvents();
+            arena.RemoveChild(probeStage);
+            if (audio.IsSubscribed)
+                failures.Add("roster-attached CombatAudioController remained subscribed after _ExitTree");
+            probeStage.Free();
+        }
+    }
+
+    private sealed partial class AudioEventProbeEnemy : EnemyController
+    {
+        public override bool HasFrontalDefense => true;
+
+        public void EmitProbeProjectileFire()
+            => EmitProjectileFired(new EnemyProjectileFiredCue(GlobalPosition, Vector2.Left, 15f));
+
+        public void EmitProbeOverloadPulse()
+            => EmitOverloadPulseTriggered(new EnemyOverloadPulseCue(GlobalPosition, PhaseNumber: 2));
     }
 
     private static bool MatchesLittleEndianSample(byte[] data, int sampleIndex, short expected)

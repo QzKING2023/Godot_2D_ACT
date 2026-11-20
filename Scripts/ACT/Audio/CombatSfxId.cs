@@ -1,7 +1,7 @@
 namespace ACTSpike.ACT.Audio;
 
 /// <summary>
-/// Identifiers for all procedural 16-bit PCM combat and telegraph sound cues.
+/// Identifiers for all procedural 16-bit PCM combat and telegraph sound cues (17 total).
 /// </summary>
 public enum CombatSfxId
 {
@@ -17,5 +17,9 @@ public enum CombatSfxId
     TelegraphBreakGrab,
     TelegraphDelayedArea,
     TimeSlowStart,
-    TimeSlowEnd
+    TimeSlowEnd,
+    ShieldDeflect,
+    ProjectileFire,
+    ProjectileReflect,
+    BossOverloadPulse
 }
