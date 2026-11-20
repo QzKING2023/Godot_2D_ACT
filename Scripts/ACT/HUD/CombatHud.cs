@@ -32,6 +32,8 @@ public partial class CombatHud : Control
 
     private PlayerController? _player;
     private PlayerController? _subscribedPlayer;
+    private StageEnemyRoster? _enemyRoster;
+    private StageEnemyRoster? _subscribedRoster;
     private string _lastCombatLine = "";
     private string _lastTimeLine = "";
     private string _eventBannerText = "";
@@ -55,7 +57,18 @@ public partial class CombatHud : Control
 
     public const string DefaultBossDisplayName = "遗迹守卫";
 
-    public StageEnemyRoster? EnemyRoster { get; set; }
+    public StageEnemyRoster? EnemyRoster
+    {
+        get => _enemyRoster;
+        set
+        {
+            if (ReferenceEquals(_enemyRoster, value)) return;
+            UnsubscribeRoster();
+            _enemyRoster = value;
+            if (IsInsideTree())
+                SubscribeRoster();
+        }
+    }
     public EnemyController? Enemy { get; set; }
     public TimeSlowManager TimeSlow { get; set; } = null!;
     public string ArenaMessage { get; set; } = "向右穿过试炼门柱，迎战遗迹守卫";
@@ -104,17 +117,21 @@ public partial class CombatHud : Control
     {
         MouseFilter = MouseFilterEnum.Ignore;
         SubscribePlayer();
+        SubscribeRoster();
     }
 
     public override void _ExitTree()
     {
         UnsubscribePlayer();
+        UnsubscribeRoster();
     }
 
     public override void _Process(double delta)
     {
         if (_subscribedPlayer is null && _player is not null)
             SubscribePlayer();
+        if (_subscribedRoster is null && _enemyRoster is not null)
+            SubscribeRoster();
 
         if (ActInput.ToggleDebugPressed())
             DebugOverlayVisible = !DebugOverlayVisible;
@@ -148,6 +165,27 @@ public partial class CombatHud : Control
         if (_subscribedPlayer is null) return;
         _subscribedPlayer.DefenseResolved -= OnPlayerDefenseResolved;
         _subscribedPlayer = null;
+    }
+
+    private void SubscribeRoster()
+    {
+        if (_enemyRoster is null || !GodotObject.IsInstanceValid(_enemyRoster) || ReferenceEquals(_subscribedRoster, _enemyRoster))
+            return;
+        _enemyRoster.EnemyOverloadPulseTriggered += OnRosterEnemyOverloadPulseTriggered;
+        _subscribedRoster = _enemyRoster;
+    }
+
+    private void UnsubscribeRoster()
+    {
+        if (_subscribedRoster is null) return;
+        if (GodotObject.IsInstanceValid(_subscribedRoster))
+            _subscribedRoster.EnemyOverloadPulseTriggered -= OnRosterEnemyOverloadPulseTriggered;
+        _subscribedRoster = null;
+    }
+
+    private void OnRosterEnemyOverloadPulseTriggered(RosterEnemyOverloadPulseCue _)
+    {
+        ShowEventBanner("遗迹守卫 · 过载二阶段", RuinGeometryPalette.HudBossOverloadBanner, 1.8f, 26);
     }
 
     private void OnPlayerDefenseResolved(PlayerDefenseCue cue)

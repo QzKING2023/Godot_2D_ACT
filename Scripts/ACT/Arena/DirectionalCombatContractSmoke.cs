@@ -354,11 +354,11 @@ public static partial class DirectionalCombatContractSmoke
             baseEnemy.Bind(player, windows);
             guardianBoss.Bind(player, windows);
 
-            for (int step = 0; step < 24 && (baseAttacks.Count < 3 || bossAttacks.Count < 4); step++)
+            for (int step = 0; step < 36 && (baseAttacks.Count < 3 || bossAttacks.Count < 4); step++)
             {
                 baseEnemy._PhysicsProcess(0.016);
                 guardianBoss._PhysicsProcess(0.016);
-                player.ResetTo(new Vector2(360f, 510f));
+                player.ResetTo(new Vector2(guardianBoss.GlobalPosition.X - 140f, 510f));
             }
 
             if (baseAttacks.Count < 3 ||
@@ -366,26 +366,27 @@ public static partial class DirectionalCombatContractSmoke
                 baseAttacks[1] != BossAttackKind.Normal ||
                 baseAttacks[2] != BossAttackKind.Normal)
             {
-                failures.Add($"generic EnemyController base should not run 3-move boss cycle; got [{string.Join(", ", baseAttacks)}]");
+                failures.Add($"generic EnemyController base should not run boss kit; got [{string.Join(", ", baseAttacks)}]");
             }
 
             if (bossAttacks.Count < 4 ||
                 bossAttacks[0] != BossAttackKind.Normal ||
                 bossAttacks[1] != BossAttackKind.BreakGrab ||
-                bossAttacks[2] != BossAttackKind.DelayedArea ||
-                bossAttacks[3] != BossAttackKind.Normal)
+                bossAttacks[2] != BossAttackKind.Normal ||
+                bossAttacks[3] != BossAttackKind.BreakGrab)
             {
-                failures.Add($"RuinGuardianBoss 3-move cycle mismatch; got [{string.Join(", ", bossAttacks)}]");
+                failures.Add($"RuinGuardianBoss close-range interleaving mismatch; got [{string.Join(", ", bossAttacks)}]");
             }
 
-            // ResetTo resets boss cycle back to Normal
+            // ResetTo resets boss selection back to Normal
             bossAttacks.Clear();
+            player.ResetTo(new Vector2(360f, 510f));
             guardianBoss.ResetTo(new Vector2(500f, 510f));
             for (int step = 0; step < 6 && bossAttacks.Count == 0; step++)
                 guardianBoss._PhysicsProcess(0.016);
 
             if (bossAttacks.Count == 0 || bossAttacks[0] != BossAttackKind.Normal)
-                failures.Add($"RuinGuardianBoss ResetTo did not reset cycle to Normal; got [{string.Join(", ", bossAttacks)}]");
+                failures.Add($"RuinGuardianBoss ResetTo did not reset opening attack to Normal; got [{string.Join(", ", bossAttacks)}]");
         }
         finally
         {

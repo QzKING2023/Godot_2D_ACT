@@ -74,6 +74,9 @@ public partial class PlayerController : CharacterBody2D
     private float _dodgeStartedAt = -10f;
     private float _blockHeldSince = -10f;
     private float _invulnerableUntil = -10f;
+    private float _externalPushVelocityX;
+    private float _externalPushDuration = 0.001f;
+    private float _externalPushEndsAt = -10f;
     private ulong _lastReportedEventMsec;
     private bool _blockWasHeld;
     private bool _wasOnFloor = true;
@@ -306,11 +309,30 @@ public partial class PlayerController : CharacterBody2D
         _skillAimIndicator.Visible = true;
     }
 
+    /// <summary>
+    /// Applies a zero-damage external horizontal knockback impulse (e.g., Boss Phase 2 overload pulse)
+    /// that is not swallowed by ground movement speed resets.
+    /// </summary>
+    public void ApplyExternalHorizontalPush(float velocityX, float durationSeconds)
+    {
+        if (IsDown || durationSeconds <= 0f || Mathf.IsZeroApprox(velocityX))
+            return;
+
+        _externalPushVelocityX = velocityX;
+        _externalPushDuration = durationSeconds;
+        _externalPushEndsAt = Now + durationSeconds;
+        Velocity = Velocity with { X = velocityX };
+    }
+
     private void ApplyGravityAndMove(float dt)
     {
-        // While Y is held for aiming, freeze controllable movement in place.
+        float now = Now;
+        bool externalPushActive = now < _externalPushEndsAt &&
+                                  State is not (PlayerState.Dodge or PlayerState.Skill);
+
+        // While Y is held for aiming, freeze controllable movement in place unless externally pushed.
         // Direction sampling and the aim indicator continue in _Process.
-        if (_skillCharging && IsOnFloor()
+        if (!externalPushActive && _skillCharging && IsOnFloor()
             && State is (PlayerState.Idle or PlayerState.Move or PlayerState.Block))
         {
             Velocity = Vector2.Zero;
@@ -322,28 +344,36 @@ public partial class PlayerController : CharacterBody2D
         else if (State != PlayerState.Skill && !IsOnFloor())
             Velocity = Velocity with { Y = Velocity.Y + Gravity * dt };
 
-        switch (State)
+        if (externalPushActive)
         {
-            case PlayerState.Dodge:
-            case PlayerState.Skill:
-                break; // velocity is driven by the action
-            case PlayerState.Attack:
-            case PlayerState.Hitstun:
-            case PlayerState.Block:
-                Velocity = Velocity with { X = Mathf.MoveToward(Velocity.X, 0, Acceleration * dt) };
-                break;
-            default:
-                // Ground movement is direct. In the air, preserve the launch
-                // vector until a dodge or skill explicitly changes it.
-                if (IsOnFloor())
-                    Velocity = Velocity with { X = _moveAxis.X * MoveSpeed };
-                if (State == PlayerState.Jump && IsOnFloor())
-                    SetState(Mathf.Abs(Velocity.X) > 10f ? PlayerState.Move : PlayerState.Idle, "landed");
-                else if (State == PlayerState.Idle && Mathf.Abs(Velocity.X) > 10f)
-                    SetState(PlayerState.Move, "moving");
-                else if (State == PlayerState.Move && Mathf.Abs(Velocity.X) <= 10f && _moveAxis.X == 0)
-                    SetState(PlayerState.Idle, "stopped");
-                break;
+            float remainingRatio = Mathf.Clamp((_externalPushEndsAt - now) / _externalPushDuration, 0.25f, 1f);
+            Velocity = Velocity with { X = _externalPushVelocityX * remainingRatio };
+        }
+        else
+        {
+            switch (State)
+            {
+                case PlayerState.Dodge:
+                case PlayerState.Skill:
+                    break; // velocity is driven by the action
+                case PlayerState.Attack:
+                case PlayerState.Hitstun:
+                case PlayerState.Block:
+                    Velocity = Velocity with { X = Mathf.MoveToward(Velocity.X, 0, Acceleration * dt) };
+                    break;
+                default:
+                    // Ground movement is direct. In the air, preserve the launch
+                    // vector until a dodge or skill explicitly changes it.
+                    if (IsOnFloor())
+                        Velocity = Velocity with { X = _moveAxis.X * MoveSpeed };
+                    if (State == PlayerState.Jump && IsOnFloor())
+                        SetState(Mathf.Abs(Velocity.X) > 10f ? PlayerState.Move : PlayerState.Idle, "landed");
+                    else if (State == PlayerState.Idle && Mathf.Abs(Velocity.X) > 10f)
+                        SetState(PlayerState.Move, "moving");
+                    else if (State == PlayerState.Move && Mathf.Abs(Velocity.X) <= 10f && _moveAxis.X == 0)
+                        SetState(PlayerState.Idle, "stopped");
+                    break;
+            }
         }
         MoveAndSlide();
         bool onFloor = IsOnFloor();
@@ -619,6 +649,8 @@ public partial class PlayerController : CharacterBody2D
         _pendingSkillContacts.Clear();
         _stateEndsAt = -10f;
         _invulnerableUntil = -10f;
+        _externalPushVelocityX = 0f;
+        _externalPushEndsAt = -10f;
         _jumpQueued = _attackQueued = _dodgeQueued = _skillQueued = _skillCharging = false;
         _wasOnFloor = true;
         SetState(PlayerState.Idle, "round reset");
@@ -632,6 +664,8 @@ public partial class PlayerController : CharacterBody2D
         _attackHitbox.Monitoring = false;
         _swingHit.Clear();
         _pendingSkillContacts.Clear();
+        _externalPushVelocityX = 0f;
+        _externalPushEndsAt = -10f;
         SetState(PlayerState.Idle, "scene transition");
     }
 
