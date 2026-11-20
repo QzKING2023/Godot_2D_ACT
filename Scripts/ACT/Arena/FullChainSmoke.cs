@@ -124,6 +124,13 @@ public static class FullChainSmoke
             return false;
         }
 
+        if (enemy is RuinGuardianBoss guardian &&
+            (guardian.Phase != 1 || guardian.IsPhaseTwo || guardian.IsInvulnerable))
+        {
+            failureReason = $"RuinGuardianBoss phase state not reset cleanly (Phase={guardian.Phase}, Invuln={guardian.IsInvulnerable})";
+            return false;
+        }
+
         if (timeSlow.Active || !Mathf.IsEqualApprox(timeSlow.Resource, timeSlow.Config.MaxResource))
         {
             failureReason = $"TimeSlow not reset cleanly (Active={timeSlow.Active}, Resource={timeSlow.Resource})";

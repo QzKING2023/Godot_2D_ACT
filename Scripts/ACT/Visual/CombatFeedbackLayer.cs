@@ -261,6 +261,7 @@ public partial class CombatFeedbackLayer : Node2D
         {
             _roster.EnemyStrikeActivated += OnRosterEnemyStrikeActivated;
             _roster.EnemyDamaged += OnRosterEnemyDamaged;
+            _roster.EnemyOverloadPulseTriggered += OnRosterEnemyOverloadPulseTriggered;
             _roster.EnemyUnregistered += OnRosterEnemyUnregistered;
         }
     }
@@ -287,6 +288,7 @@ public partial class CombatFeedbackLayer : Node2D
             {
                 _roster.EnemyStrikeActivated -= OnRosterEnemyStrikeActivated;
                 _roster.EnemyDamaged -= OnRosterEnemyDamaged;
+                _roster.EnemyOverloadPulseTriggered -= OnRosterEnemyOverloadPulseTriggered;
                 _roster.EnemyUnregistered -= OnRosterEnemyUnregistered;
             }
         }
@@ -552,6 +554,15 @@ public partial class CombatFeedbackLayer : Node2D
             ParticleShape.Shard);
         if (cue.Defeated)
             SpawnRing(cue.Position, 16f, 140f, 0.40f, RuinGeometryPalette.TelegraphNormal, 5f);
+    }
+
+    private void OnRosterEnemyOverloadPulseTriggered(RosterEnemyOverloadPulseCue rosterCue)
+    {
+        EnemyOverloadPulseCue cue = rosterCue.Cue;
+        TriggerShake(12f);
+        SpawnRing(cue.Origin, 18f, 260f, 0.45f, RuinGeometryPalette.BossOverloadPulseRing, 6f);
+        SpawnRing(cue.Origin, 10f, 175f, 0.34f, RuinGeometryPalette.BossOverloadFissureCore, 4f);
+        SpawnBurst(cue.Origin, 22, RuinGeometryPalette.BossOverloadFissureGlow, 380f, ParticleShape.Shard);
     }
 
     private void OnRosterEnemyUnregistered(EnemyController enemy)
