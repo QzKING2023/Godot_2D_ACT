@@ -159,6 +159,8 @@ public partial class StageEnemyRoster : Node
                 Unregister(snapshot[i]);
         }
         AttackCoordinator.Clear();
+        if (GodotObject.IsInstanceValid(this) && IsInsideTree())
+            EnemyProjectile.ClearAll(GetParent());
     }
 
     public override void _ExitTree()

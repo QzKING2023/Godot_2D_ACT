@@ -54,8 +54,10 @@ public partial class EnemyVisual : Node2D
     public bool ShouldDrawOverheadHealthBar => _enemy is not null && _enemy.ShowsOverheadHealthBar;
 
     protected EnemyController? BoundEnemy => _enemy;
+    protected TimeSlowManager? BoundTimeSlow => _timeSlow;
     protected float RealElapsedSec => _realElapsedSec;
     protected bool IsHitFlashing => _hitFlash > 0f;
+    protected float StrikeFlash => _strikeFlash;
 
     public override void _Ready()
     {
@@ -172,7 +174,7 @@ public partial class EnemyVisual : Node2D
         _facing = _enemy.Facing >= 0 ? 1 : -1;
     }
 
-    private void DrawTelegraphOrStrike()
+    protected virtual void DrawTelegraphOrStrike()
     {
         EnemyController e = _enemy!;
         bool timeSlowActive = _timeSlow is { Active: true };

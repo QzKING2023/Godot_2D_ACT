@@ -261,6 +261,7 @@ public partial class CombatFeedbackLayer : Node2D
         {
             _roster.EnemyStrikeActivated += OnRosterEnemyStrikeActivated;
             _roster.EnemyDamaged += OnRosterEnemyDamaged;
+            _roster.EnemyShieldDeflected += OnRosterEnemyShieldDeflected;
             _roster.EnemyOverloadPulseTriggered += OnRosterEnemyOverloadPulseTriggered;
             _roster.EnemyUnregistered += OnRosterEnemyUnregistered;
         }
@@ -288,6 +289,7 @@ public partial class CombatFeedbackLayer : Node2D
             {
                 _roster.EnemyStrikeActivated -= OnRosterEnemyStrikeActivated;
                 _roster.EnemyDamaged -= OnRosterEnemyDamaged;
+                _roster.EnemyShieldDeflected -= OnRosterEnemyShieldDeflected;
                 _roster.EnemyOverloadPulseTriggered -= OnRosterEnemyOverloadPulseTriggered;
                 _roster.EnemyUnregistered -= OnRosterEnemyUnregistered;
             }
@@ -554,6 +556,17 @@ public partial class CombatFeedbackLayer : Node2D
             ParticleShape.Shard);
         if (cue.Defeated)
             SpawnRing(cue.Position, 16f, 140f, 0.40f, RuinGeometryPalette.TelegraphNormal, 5f);
+    }
+
+    private void OnRosterEnemyShieldDeflected(RosterEnemyShieldDeflectedCue rosterCue)
+    {
+        EnemyShieldDeflectedCue cue = rosterCue.Cue;
+        int facing = cue.DefenderFacing >= 0 ? 1 : -1;
+        Vector2 impactOrigin = cue.Position + new Vector2(facing * 32f, -6f);
+        TriggerShake(3.5f);
+        SpawnRing(impactOrigin, 8f, 54f, 0.20f, RuinGeometryPalette.PlayerShieldEdge, 3f);
+        SpawnBurst(impactOrigin, 12, RuinGeometryPalette.PlayerBlade, 290f, ParticleShape.Spark);
+        SpawnBurst(impactOrigin, 5, Colors.White, 220f, ParticleShape.Shard);
     }
 
     private void OnRosterEnemyOverloadPulseTriggered(RosterEnemyOverloadPulseCue rosterCue)
