@@ -62,6 +62,7 @@ public partial class FormalStage : Node2D
         var layer = new CanvasLayer { Name = "HUDLayer" };
         layer.AddChild(_hud);
         AddChild(layer);
+        PauseMenuOverlay.Attach(this, _timeSlow);
         CombatAudioController.Attach(this, _player, _enemy, _timeSlow);
         _hud.ArenaMessage = HasEnemy ? "清除遭遇敌人后前往右侧出口" : "沿路线向右移动，抵达出口进入下一场景";
     }
@@ -70,6 +71,7 @@ public partial class FormalStage : Node2D
     {
         if (ActInput.ResetPressed())
         {
+            Engine.TimeScale = 1.0;
             GetNodeOrNull<RunSession>("/root/RunSession")?.Clear();
             GetTree().ReloadCurrentScene();
             return;

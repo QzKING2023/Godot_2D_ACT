@@ -64,6 +64,7 @@ public partial class TestArena : Node2D
         _environment.Camera = camera;
 
         BuildHud();
+        PauseMenuOverlay.Attach(this, _timeSlow);
         WireFeedback();
         CombatAudioController.Attach(this, _player, _enemy, _timeSlow);
         LogInputAudit();
@@ -88,7 +89,7 @@ public partial class TestArena : Node2D
         if (_player.IsDown && !_defeatReported)
         {
             _defeatReported = true;
-            _hud.ArenaMessage = "PLAYER DOWN - press R to reset the arena";
+            _hud.ArenaMessage = "已倒下 · 按 R 重置当前关";
             _hud.ReportCombat("failure: player defeated");
             GD.Print("[Arena] player defeated; waiting for R reset");
         }
@@ -96,7 +97,7 @@ public partial class TestArena : Node2D
         {
             _bossArenaEntered = true;
             _environment.SetGateState(BossGateId, RuinGateState.Locked);
-            _hud.ArenaMessage = "BOSS ARENA - defeat the enemy, then exit right";
+            _hud.ArenaMessage = "遗迹守卫苏醒 · 击败强敌以开启出口";
             _hud.ReportCombat("boss arena entered automatically");
             GD.Print("[Arena] boss boundary crossed");
         }
@@ -106,7 +107,7 @@ public partial class TestArena : Node2D
             _bossDefeatReported = true;
             _environment.SetGateState(BossGateId, RuinGateState.Unlocked);
             _environment.SetGateState(VictoryGateId, RuinGateState.Unlocked);
-            _hud.ArenaMessage = "BOSS DEFEATED - reach EXIT";
+            _hud.ArenaMessage = "遗迹守卫已击破 · 前往右侧出口";
             _hud.ReportCombat("victory condition met: boss defeated");
             GD.Print("[Arena] boss defeated; exit is now active");
         }
@@ -116,7 +117,7 @@ public partial class TestArena : Node2D
         {
             _victory = true;
             _transitioning = true;
-            _hud.ArenaMessage = "EXIT REACHED - transitioning";
+            _hud.ArenaMessage = "已抵达出口 · 正在前往结算";
             GD.Print("[Arena] victory boundary crossed; changing scene");
             GetTree().ChangeSceneToFile("res://Scenes/Victory.tscn");
         }

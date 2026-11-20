@@ -71,6 +71,7 @@ public partial class TutorialStage : Node2D
         var layer = new CanvasLayer { Name = "HUDLayer" };
         layer.AddChild(_hud);
         AddChild(layer);
+        PauseMenuOverlay.Attach(this, _timeSlow);
         CombatAudioController.Attach(this, _player, _enemy, _timeSlow);
         _player.CombatFeedback += OnCombatFeedback;
         _hud.ArenaMessage = GoalText();
@@ -80,6 +81,7 @@ public partial class TutorialStage : Node2D
     {
         if (ActInput.ResetPressed())
         {
+            Engine.TimeScale = 1.0;
             GetNodeOrNull<RunSession>("/root/RunSession")?.Clear();
             GetTree().ReloadCurrentScene();
             return;
