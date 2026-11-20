@@ -375,15 +375,18 @@ public partial class PlayerController : CharacterBody2D
 
             if (isSkill)
             {
-                if (ShouldDeferFrontalSkillContact(enemy, enemy.Facing))
+                bool hasPending = TryGetPendingSkillContact(enemy, out PendingSkillContact pending);
+                int referenceFacing = hasPending ? pending.InitialFacing : enemy.Facing;
+                if (ShouldDeferFrontalSkillContact(enemy, referenceFacing))
                 {
-                    if (!HasPendingSkillContact(enemy))
-                        _pendingSkillContacts.Add(new PendingSkillContact(enemy, enemy.Facing));
+                    if (!hasPending)
+                        _pendingSkillContacts.Add(new PendingSkillContact(enemy, referenceFacing));
                 }
                 else
                 {
-                    RemovePendingSkillContact(enemy);
-                    ResolveSkillHitOnEnemy(enemy, enemy.Facing);
+                    if (hasPending)
+                        RemovePendingSkillContact(enemy);
+                    ResolveSkillHitOnEnemy(enemy, referenceFacing);
                 }
             }
             else
@@ -404,17 +407,21 @@ public partial class PlayerController : CharacterBody2D
     }
 
     private bool ShouldDeferFrontalSkillContact(EnemyController enemy, int referenceFacing)
-        => enemy.HasFrontalDefense &&
+        => enemy.IsFrontalDefenseActive &&
            !EnemyHitContext.IsOnBackSide(_skillStartPosition.X, enemy.GlobalPosition.X, referenceFacing) &&
            !EnemyHitContext.HasCrossedHorizontalCenterline(_skillStartPosition.X, GlobalPosition.X, enemy.GlobalPosition.X, referenceFacing);
 
-    private bool HasPendingSkillContact(EnemyController enemy)
+    private bool TryGetPendingSkillContact(EnemyController enemy, out PendingSkillContact pending)
     {
         for (int i = 0; i < _pendingSkillContacts.Count; i++)
         {
             if (ReferenceEquals(_pendingSkillContacts[i].Enemy, enemy))
+            {
+                pending = _pendingSkillContacts[i];
                 return true;
+            }
         }
+        pending = default;
         return false;
     }
 
@@ -444,7 +451,7 @@ public partial class PlayerController : CharacterBody2D
                 GlobalPosition.X,
                 enemy.GlobalPosition.X,
                 pending.InitialFacing);
-            if (!enemy.HasFrontalDefense || crossed)
+            if (!enemy.IsFrontalDefenseActive || crossed)
             {
                 _pendingSkillContacts.RemoveAt(i);
                 ResolveSkillHitOnEnemy(enemy, pending.InitialFacing);

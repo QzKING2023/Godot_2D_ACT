@@ -459,6 +459,8 @@ public static partial class DirectionalCombatContractSmoke
             FrontSkillShortWait,
             DynamicFacingSkillCrossStart,
             DynamicFacingSkillCrossWait,
+            ShieldBrokenShortSkillStart,
+            ShieldBrokenShortSkillWait,
             Done
         }
 
@@ -482,6 +484,7 @@ public static partial class DirectionalCombatContractSmoke
         private EnemyShieldDeflectedCue? _lastDeflectedCue;
         private bool _skillReleasePending;
         private bool _deflectedDuringShortDash;
+        private bool _landedDuringShieldBrokenDash;
 
         public bool IsCompleted { get; private set; }
 
@@ -744,6 +747,45 @@ public static partial class DirectionalCombatContractSmoke
                             _landedCount != _landedBefore + 1)
                         {
                             _failures.Add($"dynamic-facing centerline-crossing skill mismatch: endX={_player.GlobalPosition.X:0.0} enemyFacing={_enemy.Facing} hp={_enemy.Hp}/{_hpBefore} deflects={_rosterDeflectCount - _deflectBefore} landed={_landedCount - _landedBefore}");
+                        }
+                        Transition(Step.ShieldBrokenShortSkillStart);
+                    }
+                    break;
+
+                // 7. ShieldBroken enemy hit by a short frontal skill dash: must damage immediately during dash without deferring
+                case Step.ShieldBrokenShortSkillStart:
+                    _enemy.LockFacingLeft();
+                    _windows.SkillSeconds = 0.12f;
+                    PrepareActor(EnemyX - 140f, moveRight: true);
+                    _enemy.EnterShieldBreak(0.50f, "shield break short skill probe");
+                    _hpBefore = _enemy.Hp;
+                    _deflectBefore = _rosterDeflectCount;
+                    _landedBefore = _landedCount;
+                    _landedDuringShieldBrokenDash = false;
+                    SendAction("skill", true);
+                    _skillReleasePending = true;
+                    Transition(Step.ShieldBrokenShortSkillWait);
+                    break;
+
+                case Step.ShieldBrokenShortSkillWait:
+                    if (_skillReleasePending && _stepFrames >= 2)
+                    {
+                        _skillReleasePending = false;
+                        SendAction("skill", false);
+                    }
+                    if (_player.State == PlayerState.Skill && _landedCount > _landedBefore)
+                        _landedDuringShieldBrokenDash = true;
+                    if (!_skillReleasePending && _stepFrames >= 5 && _player.State != PlayerState.Skill)
+                    {
+                        SendAction("move_right", false);
+                        bool stayedInFront = _player.GlobalPosition.X < EnemyX;
+                        if (!stayedInFront ||
+                            !_landedDuringShieldBrokenDash ||
+                            !Mathf.IsEqualApprox(_enemy.Hp, _hpBefore - _player.SkillDamage) ||
+                            _rosterDeflectCount != _deflectBefore ||
+                            _landedCount != _landedBefore + 1)
+                        {
+                            _failures.Add($"shield-broken short frontal skill mismatch: endX={_player.GlobalPosition.X:0.0} landedDuringDash={_landedDuringShieldBrokenDash} hp={_enemy.Hp}/{_hpBefore} deflects={_rosterDeflectCount - _deflectBefore} landed={_landedCount - _landedBefore}");
                         }
                         CompleteProbe();
                     }

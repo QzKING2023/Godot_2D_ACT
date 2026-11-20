@@ -107,7 +107,7 @@ public partial class EnemyController : CharacterBody2D
 
     public virtual bool IsInvulnerable => false;
     public virtual bool HasFrontalDefense => false;
-    public virtual bool TryDefend(AttackResolution incoming) => false;
+    public bool IsFrontalDefenseActive => HasFrontalDefense && !IsShieldBroken;
 
     private PlayerController? _player;
     private TimeSlowManager? _timeSlow;
@@ -385,7 +385,7 @@ public partial class EnemyController : CharacterBody2D
            Mathf.Abs(_player.GlobalPosition.Y - GlobalPosition.Y) < 110f;
 
     protected virtual bool ShouldDeflectHit(in EnemyHitContext hit)
-        => HasFrontalDefense && !IsShieldBroken && hit.IsFrontalStrike(GlobalPosition, Facing);
+        => IsFrontalDefenseActive && hit.IsFrontalStrike(GlobalPosition, Facing);
 
     /// <summary>
     /// Resolves an incoming directional strike against this enemy, supporting frontal shield
