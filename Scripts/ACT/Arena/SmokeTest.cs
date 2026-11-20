@@ -89,6 +89,7 @@ public partial class SmokeTest : Node
         MultiEnemyStageSmoke.Check(GetParent(), Fail);
         DirectionalCombatContractSmoke.Check(GetParent(), Fail);
         EncounterAttackCoordinatorSmoke.Check(GetParent(), Fail);
+        RangedArcherSmoke.Check(GetParent(), Fail);
         GD.Print("[Smoke] running (ACT_SMOKE=1)");
     }
 

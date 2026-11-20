@@ -19,7 +19,8 @@ public readonly record struct EnemyHitContext(
     Vector2 AttackerOrigin,
     Vector2 MotionDirection,
     bool IsDirectionalSkill = false,
-    bool CrossedTargetCenterline = false)
+    bool CrossedTargetCenterline = false,
+    bool BypassFrontalDefense = false)
 {
     public const float CenterlineEpsilon = 0.01f;
 
@@ -60,7 +61,7 @@ public readonly record struct EnemyHitContext(
     /// </summary>
     public bool IsFrontalStrike(Vector2 targetPosition, int targetFacing)
     {
-        if (IsDirectionalSkill && CrossedTargetCenterline)
+        if (BypassFrontalDefense || (IsDirectionalSkill && CrossedTargetCenterline))
             return false;
 
         int facing = targetFacing >= 0 ? 1 : -1;
