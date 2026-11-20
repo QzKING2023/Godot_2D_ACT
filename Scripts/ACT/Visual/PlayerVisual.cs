@@ -146,13 +146,12 @@ public partial class PlayerVisual : Node2D
         foreach (AfterimageSample sample in _afterimages)
         {
             float alpha = (1f - sample.Age / sample.MaxAge) * 0.42f;
-            var ghostColor = new Color(0.45f, 0.92f, 0.88f, alpha);
+            Color ghostColor = RuinGeometryPalette.PlayerAfterimage with { A = alpha };
             Vector2 localOrigin = ToLocal(sample.WorldPosition);
-            DrawPlayerFacet(localOrigin, sample.Facing, sample.State, squash: 0f, isDown: false, ghostColor, ghost: true);
+            DrawPlayerFacet(localOrigin, sample.Facing, sample.State, squash: 0f, isDown: false, ghostTint: ghostColor);
         }
 
-        Color flashTint = _hitFlash > 0f ? Colors.White : new Color("e8edf2");
-        DrawPlayerFacet(Vector2.Zero, _player.Facing, _player.State, _landSquash, _player.IsDown, flashTint, ghost: false);
+        DrawPlayerFacet(Vector2.Zero, _player.Facing, _player.State, _landSquash, _player.IsDown, isHitFlash: _hitFlash > 0f);
         DrawCombatOverlay();
     }
 
@@ -200,9 +199,11 @@ public partial class PlayerVisual : Node2D
         PlayerState state,
         float squash,
         bool isDown,
-        Color tint,
-        bool ghost)
+        bool isHitFlash = false,
+        Color? ghostTint = null)
     {
+        bool isGhost = ghostTint.HasValue;
+        Color ghostColor = ghostTint ?? default;
         float sx = 1f + squash * 0.22f;
         float sy = 1f - squash * 0.18f;
         float tilt;
@@ -237,25 +238,25 @@ public partial class PlayerVisual : Node2D
             }
         }
 
-        float bob = !ghost && !isDown && state == PlayerState.Idle
+        float bob = !isGhost && !isDown && state == PlayerState.Idle
             ? Mathf.Sin(_realElapsedSec * 4f) * 1.6f
             : 0f;
         float downSink = isDown ? 13f : 0f;
         Vector2 origin = basePos + new Vector2(0f, 23f * (1f - sy) + bob + downSink);
 
-        bool whiteFlash = !ghost && tint == Colors.White;
-        Color backColor = ghost
-            ? tint
+        bool whiteFlash = !isGhost && isHitFlash;
+        Color backColor = isGhost
+            ? ghostColor
             : whiteFlash
                 ? Colors.White
                 : isDown ? RuinGeometryPalette.PlayerShadowFacet.Darkened(0.28f) : RuinGeometryPalette.PlayerShadowFacet;
-        Color litColor = ghost
-            ? tint
+        Color litColor = isGhost
+            ? ghostColor
             : whiteFlash
                 ? Colors.White
                 : isDown ? RuinGeometryPalette.PlayerLitFacet.Darkened(0.42f) : RuinGeometryPalette.PlayerLitFacet;
-        Color headColor = ghost
-            ? tint
+        Color headColor = isGhost
+            ? ghostColor
             : whiteFlash
                 ? Colors.White
                 : isDown ? RuinGeometryPalette.PlayerHead.Darkened(0.32f) : RuinGeometryPalette.PlayerHead;
@@ -265,7 +266,7 @@ public partial class PlayerVisual : Node2D
         GeometricDraw.FillPolygon(this, backFacet, backColor);
         GeometricDraw.FillPolygon(this, litFacet, litColor);
 
-        if (!ghost)
+        if (!isGhost)
         {
             Color trimColor = whiteFlash
                 ? Colors.White
@@ -277,7 +278,7 @@ public partial class PlayerVisual : Node2D
         Vector2[] head = GeometricDraw.TransformPoints(HeadPoints, origin, facing * sx, sy, tilt);
         GeometricDraw.FillPolygon(this, head, headColor);
 
-        if (!ghost)
+        if (!isGhost)
         {
             float bladeOffX = isDown ? 8f : state == PlayerState.Attack ? 28f : -14f;
             float bladeOffY = isDown ? 8f : -2f;
@@ -309,8 +310,8 @@ public partial class PlayerVisual : Node2D
                 : new Vector2(_player.Facing, 0f);
             Vector2 center = _slashIsSkill ? dir * 8f : new Vector2(_player.Facing * 34f, -4f);
             float baseAng = dir.Angle();
-            DrawArc(center, radius, baseAng - 1.15f, baseAng + 1.05f, 20, new Color(1f, 0.90f, 0.55f, t), 14f * t, true);
-            DrawArc(center, radius - 10f, baseAng - 0.95f, baseAng + 0.85f, 16, new Color(1f, 1f, 1f, t * 0.9f), 5f * t, true);
+            DrawArc(center, radius, baseAng - 1.15f, baseAng + 1.05f, 20, RuinGeometryPalette.SlashOuterGold with { A = t }, 14f * t, true);
+            DrawArc(center, radius - 10f, baseAng - 0.95f, baseAng + 0.85f, 16, RuinGeometryPalette.SlashInnerGold with { A = t * 0.9f }, 5f * t, true);
         }
 
         if (_player.State == PlayerState.Block)

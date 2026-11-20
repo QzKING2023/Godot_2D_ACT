@@ -1,8 +1,8 @@
 using System;
-using System.Reflection;
 using Godot;
 using ACTSpike.ACT.Arena;
 using ACTSpike.ACT.Combat;
+using ACTSpike.ACT.Config;
 using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.Player;
 
@@ -28,6 +28,8 @@ public static partial class PresentationVisualSmoke
         if (!CheckCombatFeedbackLayerMounted(host, out CombatFeedbackLayer? feedback, fail) || feedback is null)
             return;
         if (!CheckNullEnemyAttachContract(player, timeSlow, fail))
+            return;
+        if (!CheckFeedbackCueResponseContract(host, timeSlow, fail))
             return;
 
         host.AddChild(new RuntimeVisualObserver(player, feedback, timeSlow, fail)
@@ -65,10 +67,13 @@ public static partial class PresentationVisualSmoke
 
     private static bool CheckEnemyVisualMounted(EnemyController enemy, Action<string> fail)
     {
-        if (enemy.GetType().GetMethod("_Draw", BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly) is not null)
+        foreach (Node child in enemy.GetChildren())
         {
-            fail("EnemyController still declares legacy placeholder _Draw()");
-            return false;
+            if (child is ColorRect or Label or Polygon2D or Line2D)
+            {
+                fail($"legacy placeholder node '{child.Name}' ({child.GetType().Name}) still attached to Enemy");
+                return false;
+            }
         }
 
         if (enemy.Visual is null || enemy.GetNodeOrNull("Visual") is not EnemyVisual)
@@ -77,9 +82,15 @@ public static partial class PresentationVisualSmoke
             return false;
         }
 
-        if (!enemy.Visual.IsPlayerBound)
+        if (enemy.GetNodeOrNull<Area2D>("Hurtbox") is null || enemy.GetNodeOrNull<CollisionShape2D>("BodyShape") is null)
         {
-            fail("EnemyVisual is not bound to PlayerController");
+            fail("EnemyController missing expected BodyShape/Hurtbox child nodes");
+            return false;
+        }
+
+        if (!enemy.Visual.IsPlayerBound || enemy.Visual.ZIndex != 1)
+        {
+            fail($"EnemyVisual binding/ZIndex invalid (bound={enemy.Visual.IsPlayerBound}, ZIndex={enemy.Visual.ZIndex})");
             return false;
         }
 
@@ -151,6 +162,111 @@ public static partial class PresentationVisualSmoke
         }
     }
 
+    private static bool CheckFeedbackCueResponseContract(
+        SmokeTest host,
+        TimeSlowManager timeSlow,
+        Action<string> fail)
+    {
+        var probeStage = new Node2D { Name = "FeedbackCueProbeStage" };
+        var floor = new StaticBody2D { CollisionLayer = 2, CollisionMask = 0, Position = new Vector2(260f, 580f) };
+        floor.AddChild(new CollisionShape2D { Shape = new RectangleShape2D { Size = new Vector2(400f, 40f) } });
+        probeStage.AddChild(floor);
+
+        var windows = new CombatWindowConfig
+        {
+            PerfectGuardSeconds = -0.1f,
+            PerfectDodgeSeconds = 0.5f,
+            HitstunSeconds = 0f,
+            GuardDamagePerBlockedHit = 25f
+        };
+        var probePlayer = new PlayerController
+        {
+            Name = "CueProbePlayer",
+            Position = new Vector2(260f, 537f),
+            Windows = windows,
+            TimeSlow = timeSlow.Config
+        };
+        var probeCam = new Camera2D { Name = "CueProbeCamera" };
+        probePlayer.AddChild(probeCam);
+        probeStage.AddChild(probePlayer);
+
+        host.AddChild(probeStage);
+        CombatFeedbackLayer probeFeedback = CombatFeedbackLayer.Attach(probeStage, probePlayer, null, timeSlow, probeCam);
+        try
+        {
+            // Settle onto floor so block action is valid.
+            probePlayer._PhysicsProcess(0.05);
+
+            // 1. Normal Blocked (not guard broken): ring + particles + shake.
+            int ringsBefore = probeFeedback.ActiveRingCount;
+            int particlesBefore = probeFeedback.ActiveParticleCount;
+            Godot.Input.ParseInputEvent(new InputEventAction { Action = "block", Pressed = true });
+            Godot.Input.FlushBufferedEvents();
+            probePlayer._Process(0.016);
+            probePlayer._PhysicsProcess(0.016);
+            probePlayer.TryReceiveEnemyAttack(15f, BossAttackKind.Normal, out AttackResolution blockRes);
+            Godot.Input.ParseInputEvent(new InputEventAction { Action = "block", Pressed = false });
+            Godot.Input.FlushBufferedEvents();
+            probePlayer._PhysicsProcess(0.016);
+            if (blockRes.Result != DefenseResult.Blocked ||
+                probeFeedback.ActiveRingCount <= ringsBefore ||
+                probeFeedback.ActiveParticleCount <= particlesBefore ||
+                probeFeedback.ShakeIntensity < 4f)
+            {
+                fail($"Blocked feedback contract mismatch: result={blockRes.Result} rings={probeFeedback.ActiveRingCount - ringsBefore} " +
+                     $"particles={probeFeedback.ActiveParticleCount - particlesBefore} shake={probeFeedback.ShakeIntensity:0.0}");
+                return false;
+            }
+
+            // 2. GuardBroken (with GuardDamagePerBlockedHit = 120): ring + particles + shake >= 10f.
+            windows.GuardDamagePerBlockedHit = 120f;
+            ringsBefore = probeFeedback.ActiveRingCount;
+            particlesBefore = probeFeedback.ActiveParticleCount;
+            Godot.Input.ParseInputEvent(new InputEventAction { Action = "block", Pressed = true });
+            Godot.Input.FlushBufferedEvents();
+            probePlayer._Process(0.016);
+            probePlayer._PhysicsProcess(0.016);
+            probePlayer.TryReceiveEnemyAttack(15f, BossAttackKind.Normal, out AttackResolution guardBreakRes);
+            Godot.Input.ParseInputEvent(new InputEventAction { Action = "block", Pressed = false });
+            Godot.Input.FlushBufferedEvents();
+            probePlayer._PhysicsProcess(0.016);
+            if (guardBreakRes.Result != DefenseResult.Blocked ||
+                probeFeedback.ActiveRingCount <= ringsBefore ||
+                probeFeedback.ActiveParticleCount <= particlesBefore ||
+                probeFeedback.ShakeIntensity < 10f)
+            {
+                fail($"GuardBroken feedback contract mismatch: result={guardBreakRes.Result} rings={probeFeedback.ActiveRingCount - ringsBefore} " +
+                     $"particles={probeFeedback.ActiveParticleCount - particlesBefore} shake={probeFeedback.ShakeIntensity:0.0}");
+                return false;
+            }
+
+            // 3. Hit: ring + particles + shake >= 10f.
+            probePlayer.ResetTo(new Vector2(260f, 537f));
+            probePlayer._PhysicsProcess(0.05);
+            ringsBefore = probeFeedback.ActiveRingCount;
+            particlesBefore = probeFeedback.ActiveParticleCount;
+            probePlayer.TryReceiveEnemyAttack(15f, BossAttackKind.Normal, out AttackResolution hitRes);
+            if (hitRes.Result != DefenseResult.Hit ||
+                probeFeedback.ActiveRingCount <= ringsBefore ||
+                probeFeedback.ActiveParticleCount <= particlesBefore ||
+                probeFeedback.ShakeIntensity < 10f)
+            {
+                fail($"Hit feedback contract mismatch: result={hitRes.Result} rings={probeFeedback.ActiveRingCount - ringsBefore} " +
+                     $"particles={probeFeedback.ActiveParticleCount - particlesBefore} shake={probeFeedback.ShakeIntensity:0.0}");
+                return false;
+            }
+
+            return true;
+        }
+        finally
+        {
+            Godot.Input.ParseInputEvent(new InputEventAction { Action = "block", Pressed = false });
+            Godot.Input.FlushBufferedEvents();
+            host.RemoveChild(probeStage);
+            probeStage.Free();
+        }
+    }
+
     private sealed partial class RuntimeVisualObserver : Node
     {
         private readonly PlayerController _player;
@@ -160,6 +276,9 @@ public static partial class PresentationVisualSmoke
 
         private bool _sawParticles;
         private bool _sawRings;
+        private bool _sawAttackLandedRing;
+        private bool _sawPerfectDodgeShake;
+        private bool _sawHitRing;
         private bool _sawAfterimages;
         private float _peakTimeSlowBlend;
         private bool _sawTimeSlowFieldFade;
@@ -181,6 +300,7 @@ public static partial class PresentationVisualSmoke
 
         public override void _Ready()
         {
+            _player.AttackLanded += OnAttackLanded;
             _player.DefenseResolved += OnDefenseResolved;
         }
 
@@ -209,25 +329,52 @@ public static partial class PresentationVisualSmoke
         public override void _ExitTree()
         {
             if (GodotObject.IsInstanceValid(_player))
+            {
+                _player.AttackLanded -= OnAttackLanded;
                 _player.DefenseResolved -= OnDefenseResolved;
+            }
+        }
+
+        private void OnAttackLanded(PlayerHitCue _)
+        {
+            if (_feedback.ActiveRingCount > 0 && _feedback.ActiveParticleCount > 0 && _feedback.ShakeIntensity > 0f)
+                _sawAttackLandedRing = true;
         }
 
         private void OnDefenseResolved(PlayerDefenseCue cue)
         {
+            if (cue.Result == DefenseResult.PerfectDodged &&
+                _feedback.ActiveRingCount > 0 &&
+                _feedback.ActiveParticleCount > 0 &&
+                _feedback.ShakeIntensity >= 6f)
+            {
+                _sawPerfectDodgeShake = true;
+            }
+
+            if (cue.Result == DefenseResult.Hit &&
+                _feedback.ActiveRingCount > 0 &&
+                _feedback.ActiveParticleCount > 0 &&
+                _feedback.ShakeIntensity >= 10f)
+            {
+                _sawHitRing = true;
+            }
+
             if (!cue.IsDown || _verified) return;
             _verified = true;
 
-            bool ok = _sawParticles && _sawRings && _sawAfterimages &&
+            bool ok = _sawParticles && _sawRings && _sawAttackLandedRing &&
+                      _sawPerfectDodgeShake && _sawHitRing && _sawAfterimages &&
                       _peakTimeSlowBlend > 0.05f && _sawTimeSlowFieldFade &&
                       !_timeScaleCorrupted && !_hitstopActiveInSmoke;
 
             if (ok)
             {
-                GD.Print("[Smoke] PASS presentation runtime VFX (particles, rings, afterimages, TimeSlowField fade & TimeScale isolation)");
+                GD.Print("[Smoke] PASS presentation runtime VFX (particles, rings, shake, afterimages, TimeSlowField fade & TimeScale isolation)");
             }
             else
             {
-                _fail($"runtime VFX mismatch: particles={_sawParticles} rings={_sawRings} afterimages={_sawAfterimages} " +
+                _fail($"runtime VFX mismatch: particles={_sawParticles} rings={_sawRings} atkRing={_sawAttackLandedRing} " +
+                      $"pDodgeShake={_sawPerfectDodgeShake} hitRing={_sawHitRing} afterimages={_sawAfterimages} " +
                       $"slowPeak={_peakTimeSlowBlend:0.00} slowFade={_sawTimeSlowFieldFade} " +
                       $"timeScaleCorrupted={_timeScaleCorrupted} hitstopInSmoke={_hitstopActiveInSmoke}");
             }

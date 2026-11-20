@@ -11,16 +11,12 @@ namespace ACTSpike.ACT.HUD;
 /// <summary>
 /// Minimalist Esc / Xbox Start pause overlay (`Layer = 20`, `ProcessMode = Always`).
 /// Attached to TestArena, TutorialStage, and FormalStage; guarantees GetTree().Paused = false
-/// and Engine.TimeScale = 1.0 on resume, reload, title return, and teardown.
+/// and normal time scale via TimeSlowManager on resume, reload, title return, and teardown.
 /// </summary>
 public partial class PauseMenuOverlay : CanvasLayer
 {
     private static readonly Rect2 PanelRect = new(430f, 178f, 420f, 364f);
-    private const float OptionX = 484f;
-    private const float OptionStartY = 278f;
-    private const float OptionWidth = 312f;
-    private const float OptionHeight = 46f;
-    private const float OptionGap = 14f;
+    private static readonly MenuOptionLayout OptionLayout = new(484f, 278f, 312f, 46f, 14f);
 
     private TimeSlowManager? _timeSlow;
     private Control _canvas = null!;
@@ -30,17 +26,7 @@ public partial class PauseMenuOverlay : CanvasLayer
 
     public bool IsPaused => IsInsideTree() && GetTree().Paused;
     public int SelectedIndex => _menu.SelectedIndex;
-
-    public IReadOnlyList<string> OptionLabels
-    {
-        get
-        {
-            var labels = new string[_menu.Options.Count];
-            for (int i = 0; i < _menu.Options.Count; i++)
-                labels[i] = _menu.Options[i].Label;
-            return labels;
-        }
-    }
+    public IReadOnlyList<string> OptionLabels => _menu.OptionLabels;
 
     public static PauseMenuOverlay Attach(Node stage, TimeSlowManager? timeSlow = null)
     {
@@ -134,8 +120,10 @@ public partial class PauseMenuOverlay : CanvasLayer
         _pendingDeferredResume = false;
         _openedFrame = Engine.GetProcessFrames();
         _menu.ResetSelection(0);
-        _timeSlow?.Notification((int)NotificationPaused);
-        Engine.TimeScale = 1.0;
+        if (_timeSlow is not null && GodotObject.IsInstanceValid(_timeSlow))
+            _timeSlow.SetPaused(true);
+        else
+            TimeSlowManager.EnsureNormalScale();
         if (IsInsideTree())
             GetTree().Paused = true;
         Visible = true;
@@ -152,23 +140,17 @@ public partial class PauseMenuOverlay : CanvasLayer
         Visible = false;
         if (_canvas is not null)
             _canvas.MouseFilter = Control.MouseFilterEnum.Ignore;
-        _timeSlow?.Notification((int)NotificationUnpaused);
-        Engine.TimeScale = 1.0;
+        if (_timeSlow is not null && GodotObject.IsInstanceValid(_timeSlow))
+            _timeSlow.SetPaused(false);
+        else
+            TimeSlowManager.EnsureNormalScale();
         if (IsInsideTree())
             GetTree().Paused = false;
     }
 
-    public void Toggle()
-    {
-        if (IsPaused || Visible)
-            Close();
-        else
-            Open();
-    }
-
     public override void _ExitTree()
     {
-        Engine.TimeScale = 1.0;
+        TimeSlowManager.EnsureNormalScale();
         if (GetTree() is { } tree)
             tree.Paused = false;
     }
@@ -180,7 +162,7 @@ public partial class PauseMenuOverlay : CanvasLayer
         Visible = false;
         if (_canvas is not null)
             _canvas.MouseFilter = Control.MouseFilterEnum.Ignore;
-        Engine.TimeScale = 1.0;
+        TimeSlowManager.EnsureNormalScale();
         // Defer unpausing until after this frame's _Process passes so Space/A/LMB doesn't bleed into gameplay.
         CallDeferred(MethodName.Close);
     }
@@ -202,7 +184,7 @@ public partial class PauseMenuOverlay : CanvasLayer
     private void OnGuiInput(InputEvent ev)
     {
         if (!Visible) return;
-        if (_menu.HandleGuiInput(ev, OptionRect, out bool selectionChanged, out _))
+        if (_menu.HandleGuiInput(ev, OptionLayout.RectAt, out bool selectionChanged, out _))
         {
             _canvas.AcceptEvent();
             if (selectionChanged)
@@ -215,22 +197,15 @@ public partial class PauseMenuOverlay : CanvasLayer
         if (_canvas is null) return;
         Font font = UiFonts.Default;
 
-        _canvas.DrawRect(new Rect2(0f, 0f, 1280f, 720f), new Color(0.04f, 0.06f, 0.09f, 0.72f));
+        _canvas.DrawRect(new Rect2(0f, 0f, 1280f, 720f), RuinGeometryPalette.MenuPauseBackdrop);
 
         Vector2 p = PanelRect.Position;
         float w = PanelRect.Size.X;
         float h = PanelRect.Size.Y;
         const float skew = 14f;
 
-        Vector2[] panelPoly =
-        {
-            p,
-            p + new Vector2(w, 0f),
-            p + new Vector2(w - skew, h),
-            p + new Vector2(-skew, h)
-        };
-        GeometricDraw.FillAndStrokePolygon(_canvas, panelPoly,
-            RuinGeometryPalette.HudPanelDark with { A = 0.95f },
+        GeometricDraw.SkewedRect(_canvas, PanelRect, skew,
+            RuinGeometryPalette.MenuPanelFill,
             RuinGeometryPalette.PlatformTopLit, 2f);
 
         _canvas.DrawRect(new Rect2(p.X + 24f, p.Y + 24f, 72f, 3f), RuinGeometryPalette.TelegraphNormal);
@@ -238,13 +213,10 @@ public partial class PauseMenuOverlay : CanvasLayer
             "已暂停", HorizontalAlignment.Left, -1, 30, RuinGeometryPalette.HudTextLight);
         _canvas.DrawRect(new Rect2(p.X + 24f, p.Y + 78f, w - 58f, 1.5f), RuinGeometryPalette.GateLocked);
 
-        _menu.DrawOptions(_canvas, font, OptionRect, fontSize: 19, skew: 10f);
+        _menu.DrawOptions(_canvas, font, OptionLayout.RectAt, fontSize: 19, skew: 10f);
 
         _canvas.DrawString(font, new Vector2(p.X + 22f, p.Y + h - 22f),
             "W / S 选择   Enter / J / A 确认   Esc / B 继续",
             HorizontalAlignment.Left, -1, 13, RuinGeometryPalette.HudTextLight with { A = 0.7f });
     }
-
-    private static Rect2 OptionRect(int index)
-        => new(OptionX, OptionStartY + index * (OptionHeight + OptionGap), OptionWidth, OptionHeight);
 }

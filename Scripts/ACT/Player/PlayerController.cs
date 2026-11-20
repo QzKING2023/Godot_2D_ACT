@@ -96,13 +96,13 @@ public partial class PlayerController : CharacterBody2D
         _skillAimIndicator.AddChild(new Line2D
         {
             Width = 3f,
-            DefaultColor = new Color("ffd166"),
+            DefaultColor = RuinGeometryPalette.TelegraphNormal,
             Points = new[] { Vector2.Zero, new Vector2(48, 0) }
         });
         _skillAimIndicator.AddChild(new Polygon2D
         {
             Polygon = new[] { new Vector2(60, 0), new Vector2(45, -8), new Vector2(45, 8) },
-            Color = new Color("ffd166")
+            Color = RuinGeometryPalette.TelegraphNormal
         });
         AddChild(_skillAimIndicator);
 
@@ -460,7 +460,9 @@ public partial class PlayerController : CharacterBody2D
         Hp = MaxHp; Guard = MaxGuard;
         IsDown = false;
         _attackHitbox.Monitoring = false;
+        _stateEndsAt = -10f;
         _invulnerableUntil = -10f;
+        _jumpQueued = _attackQueued = _dodgeQueued = _skillQueued = _skillCharging = false;
         _wasOnFloor = true;
         SetState(PlayerState.Idle, "round reset");
     }

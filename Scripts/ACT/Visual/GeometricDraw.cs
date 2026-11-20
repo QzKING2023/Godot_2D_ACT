@@ -101,25 +101,38 @@ public static class GeometricDraw
         float skew = 8f)
     {
         float clamped = Mathf.Clamp(fraction, 0f, 1f);
-        FillSkewedRect(canvas, rect, skew, background);
+        SkewedRect(canvas, rect, skew, background);
 
         if (clamped <= 0.005f) return;
 
         var fillRect = new Rect2(rect.Position, new Vector2(rect.Size.X * clamped, rect.Size.Y));
-        FillSkewedRect(canvas, fillRect, skew, fill);
+        SkewedRect(canvas, fillRect, skew, fill);
     }
 
-    private static void FillSkewedRect(CanvasItem canvas, Rect2 rect, float skew, Color color)
+    public static Vector2[] BuildSkewedRect(Rect2 rect, float skew)
     {
         Vector2 pos = rect.Position;
         float w = rect.Size.X;
         float h = rect.Size.Y;
-        FillPolygon(canvas, new[]
+        return new[]
         {
             pos,
             pos + new Vector2(w, 0f),
             pos + new Vector2(w - skew, h),
             pos + new Vector2(-skew, h)
-        }, color);
+        };
     }
+
+    public static void SkewedRect(CanvasItem canvas, Rect2 rect, float skew, Color color)
+        => FillPolygon(canvas, BuildSkewedRect(rect, skew), color);
+
+    public static void SkewedRect(
+        CanvasItem canvas,
+        Rect2 rect,
+        float skew,
+        Color fill,
+        Color stroke,
+        float strokeWidth = 2f,
+        bool antialiased = true)
+        => FillAndStrokePolygon(canvas, BuildSkewedRect(rect, skew), fill, stroke, strokeWidth, antialiased);
 }

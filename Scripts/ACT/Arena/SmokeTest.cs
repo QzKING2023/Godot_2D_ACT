@@ -139,7 +139,18 @@ public partial class SmokeTest : Node
             RuinGeometryPalette.TimeSlowField == new Color("1b3a5c") &&
             RuinGeometryPalette.ForTelegraph(BossAttackKind.Normal) == new Color("ffd166") &&
             RuinGeometryPalette.ForTelegraph(BossAttackKind.BreakGrab) == new Color("ff3b5c") &&
-            RuinGeometryPalette.ForTelegraph(BossAttackKind.DelayedArea) == new Color("c77dff");
+            RuinGeometryPalette.ForTelegraph(BossAttackKind.DelayedArea) == new Color("c77dff") &&
+            RuinGeometryPalette.TowerRackShadow == new Color("3d4152") &&
+            RuinGeometryPalette.GateStoneLit == new Color("5a4942") &&
+            RuinGeometryPalette.BossDefeatedEye == new Color("5a6270") &&
+            RuinGeometryPalette.DelayedAreaCountdown == new Color("f0d6ff") &&
+            RuinGeometryPalette.DodgeTeal == new Color("72efdd") &&
+            RuinGeometryPalette.HitCrimson == new Color("ff4769") &&
+            RuinGeometryPalette.HudBreakHit == new Color("ff6b8a") &&
+            RuinGeometryPalette.PlayerAfterimage == new Color(0.45f, 0.92f, 0.88f) &&
+            RuinGeometryPalette.SlashOuterGold == new Color(1f, 0.90f, 0.55f) &&
+            RuinGeometryPalette.MenuPauseBackdrop == new Color(0.04f, 0.06f, 0.09f, 0.72f) &&
+            RuinGeometryPalette.MenuTitleScrim == new Color(0.06f, 0.08f, 0.12f, 0.56f);
 
         var transformed = GeometricDraw.TransformPoints(
             new[] { new Vector2(10f, 0f) },
@@ -150,10 +161,17 @@ public partial class SmokeTest : Node
         bool transformOk = transformed.Length == 1 &&
                            transformed[0].DistanceTo(new Vector2(100f, 30f)) < 0.01f;
 
-        if (paletteOk && transformOk)
+        Vector2[] skewed = GeometricDraw.BuildSkewedRect(new Rect2(10f, 20f, 100f, 40f), 8f);
+        bool skewedOk = skewed.Length == 4 &&
+                        skewed[0].IsEqualApprox(new Vector2(10f, 20f)) &&
+                        skewed[1].IsEqualApprox(new Vector2(110f, 20f)) &&
+                        skewed[2].IsEqualApprox(new Vector2(102f, 60f)) &&
+                        skewed[3].IsEqualApprox(new Vector2(2f, 60f));
+
+        if (paletteOk && transformOk && skewedOk)
             GD.Print("[Smoke] PASS ruin geometry palette & transform primitives");
         else
-            Fail($"geometry contract mismatch: paletteOk={paletteOk} transformOk={transformOk}");
+            Fail($"geometry contract mismatch: paletteOk={paletteOk} transformOk={transformOk} skewedOk={skewedOk}");
     }
 
     private void CheckDisplayAndFontContract()

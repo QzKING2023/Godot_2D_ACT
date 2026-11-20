@@ -1,12 +1,10 @@
 using System.Collections.Generic;
 using Godot;
-using ACTSpike.ACT.Audio;
 using ACTSpike.ACT.Combat;
 using ACTSpike.ACT.Config;
 using ACTSpike.ACT.Core;
 using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.HUD;
-using ACTSpike.ACT.Input;
 using ACTSpike.ACT.Player;
 using ACTSpike.ACT.Visual;
 
@@ -63,13 +61,15 @@ public partial class TestArena : Node2D
         _player.AddChild(camera);
         _environment.Camera = camera;
 
-        _player.Visual.BindTimeSlow(_timeSlow);
-        CombatFeedbackLayer.Attach(this, _player, _enemy, _timeSlow, camera);
+        _hud = StageRuntimeWiring.MountStagePresentationAndHud(
+            this,
+            _player,
+            _enemy,
+            _timeSlow,
+            camera,
+            "向右穿过试炼门柱，迎战遗迹守卫",
+            "遗迹守卫 · 巨构核心");
 
-        BuildHud();
-        PauseMenuOverlay.Attach(this, _timeSlow);
-        WireFeedback();
-        CombatAudioController.Attach(this, _player, _enemy, _timeSlow);
         LogInputAudit();
 
         if (OS.GetEnvironment("ACT_SMOKE") == "1" && GetParent() == GetTree().Root)
@@ -82,13 +82,8 @@ public partial class TestArena : Node2D
 
     public override void _Process(double delta)
     {
-        if (ActInput.ResetPressed())
-        {
-            GD.Print("[Arena] reset requested");
-            Engine.TimeScale = 1.0;
-            GetNodeOrNull<RunSession>("/root/RunSession")?.Clear();
-            GetTree().ReloadCurrentScene();
-        }
+        if (StageRuntimeWiring.HandleResetIfRequested(this, _timeSlow))
+            return;
         if (_player.IsDown && !_defeatReported)
         {
             _defeatReported = true;
@@ -110,6 +105,7 @@ public partial class TestArena : Node2D
             _bossDefeatReported = true;
             _environment.SetGateState(BossGateId, RuinGateState.Unlocked);
             _environment.SetGateState(VictoryGateId, RuinGateState.Unlocked);
+            _hud.IsObjectiveCleared = true;
             _hud.ArenaMessage = "遗迹守卫已击破 · 前往右侧出口";
             _hud.ReportCombat("victory condition met: boss defeated");
             GD.Print("[Arena] boss defeated; exit is now active");
@@ -120,6 +116,7 @@ public partial class TestArena : Node2D
         {
             _victory = true;
             _transitioning = true;
+            _hud.IsObjectiveCleared = true;
             _hud.ArenaMessage = "已抵达出口 · 正在前往结算";
             GD.Print("[Arena] victory boundary crossed; changing scene");
             GetTree().ChangeSceneToFile("res://Scenes/Victory.tscn");
@@ -128,7 +125,7 @@ public partial class TestArena : Node2D
 
     public override void _ExitTree()
     {
-        Engine.TimeScale = 1.0;
+        TimeSlowManager.EnsureNormalScale();
     }
 
     private void BuildRoomGeometry()
@@ -150,33 +147,6 @@ public partial class TestArena : Node2D
 
         _environment.AddGate(BossGateId, new Vector2(BossBoundaryX, FloorTopY), RuinGateState.Active);
         _environment.AddGate(VictoryGateId, new Vector2(VictoryBoundaryX, FloorTopY), RuinGateState.Locked);
-    }
-
-    private void BuildHud()
-    {
-        var layer = new CanvasLayer { Name = "HUDLayer", Layer = 10 };
-        _hud = new CombatHud
-        {
-            Name = "HUD",
-            Size = new Vector2(1280, 720),
-            MouseFilter = Control.MouseFilterEnum.Ignore, // keep LMB attack working over the HUD
-            Player = _player,
-            Enemy = _enemy,
-            TimeSlow = _timeSlow
-        };
-        layer.AddChild(_hud);
-        AddChild(layer);
-    }
-
-    private void WireFeedback()
-    {
-        _player.CombatFeedback += _hud.ReportCombat;
-        _player.TimeResourceRefund += _timeSlow.AddResource;
-        _timeSlow.StateChanged += line =>
-        {
-            GD.Print($"[TimeSlow] {line}");
-            _hud.ReportTime(line);
-        };
     }
 
     /// <summary>Startup evidence that every action is bound, including Xbox pad events.</summary>

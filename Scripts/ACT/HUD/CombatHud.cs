@@ -30,9 +30,6 @@ public partial class CombatHud : Control
     private static readonly Rect2 DebugPanelRect = new(24f, 96f, 560f, 194f);
     private static readonly Rect2 DefeatPanelRect = new(340f, 268f, 600f, 152f);
 
-    private static readonly Color PerfectDodgeColor = new("72efdd");
-    private static readonly Color BreakHitColor = new("ff6b8a");
-
     private PlayerController? _player;
     private PlayerController? _subscribedPlayer;
     private string _lastCombatLine = "";
@@ -56,25 +53,22 @@ public partial class CombatHud : Control
         }
     }
 
+    public const string DefaultEnemyDisplayName = "遗迹守卫 · 前哨";
+
     public EnemyController? Enemy { get; set; }
     public TimeSlowManager TimeSlow { get; set; } = null!;
     public string ArenaMessage { get; set; } = "向右穿过试炼门柱，迎战遗迹守卫";
+    public string EnemyDisplayName { get; set; } = DefaultEnemyDisplayName;
+    public bool IsObjectiveCleared { get; set; }
     public bool DebugOverlayVisible { get; set; }
 
     public string CurrentEventBannerText => NowSeconds < _eventBannerExpiresAt ? _eventBannerText : "";
+    public string LastCombatLine => _lastCombatLine;
+    public string LastTimeLine => _lastTimeLine;
 
     private static float NowSeconds => Time.GetTicksMsec() / 1000f;
 
-    public void ReportCombat(string line)
-    {
-        _lastCombatLine = line;
-        if (string.IsNullOrEmpty(line) || NowSeconds < _eventBannerExpiresAt) return;
-
-        if (line.Contains("PERFECT BLOCK", StringComparison.Ordinal))
-            ShowEventBanner("完美格挡 · 震慑破势", RuinGeometryPalette.TelegraphNormal, 1.1f, 26);
-        else if (line.Contains("PERFECT DODGE", StringComparison.Ordinal))
-            ShowEventBanner("完美闪避 · 时缓充能", PerfectDodgeColor, 1.1f, 26);
-    }
+    public void ReportCombat(string line) => _lastCombatLine = line;
 
     public void ReportTime(string line) => _lastTimeLine = line;
 
@@ -136,7 +130,7 @@ public partial class CombatHud : Control
         }
         else if (cue.Result == DefenseResult.PerfectDodged)
         {
-            ShowEventBanner("完美闪避 · 时缓充能", PerfectDodgeColor, 1.1f, 26);
+            ShowEventBanner("完美闪避 · 时缓充能", RuinGeometryPalette.DodgeTeal, 1.1f, 26);
         }
         else if (cue.GuardBroken)
         {
@@ -144,7 +138,7 @@ public partial class CombatHud : Control
         }
         else if (cue.Result == DefenseResult.Hit && cue.AttackKind == BossAttackKind.BreakGrab)
         {
-            ShowEventBanner("护盾击破", BreakHitColor, 0.95f, 22);
+            ShowEventBanner("护盾击破", RuinGeometryPalette.HudBreakHit, 0.95f, 22);
         }
     }
 
@@ -179,11 +173,7 @@ public partial class CombatHud : Control
     {
         if (string.IsNullOrWhiteSpace(ArenaMessage)) return;
 
-        bool cleared = ArenaMessage.Contains("击破", StringComparison.Ordinal) ||
-                       ArenaMessage.Contains("完成", StringComparison.Ordinal) ||
-                       ArenaMessage.Contains("抵达", StringComparison.Ordinal) ||
-                       ArenaMessage.Contains("到达", StringComparison.Ordinal);
-        Color accent = cleared ? RuinGeometryPalette.GateUnlocked : RuinGeometryPalette.PlatformTopLit;
+        Color accent = IsObjectiveCleared ? RuinGeometryPalette.GateUnlocked : RuinGeometryPalette.PlatformTopLit;
 
         GeometricDraw.AngledBar(this, ObjectivePillRect, 1f, RuinGeometryPalette.HudPanelDark, RuinGeometryPalette.HudPanelDark, skew: 10f);
         DrawRect(new Rect2(ObjectivePillRect.Position.X, ObjectivePillRect.End.Y - 2f, ObjectivePillRect.Size.X - 10f, 2f), accent with { A = 0.7f });
@@ -213,7 +203,7 @@ public partial class CombatHud : Control
         float bx = (ViewportWidth - BossBarWidth) * 0.5f;
         float by = ViewportHeight - BossBarBottomMargin;
         float fraction = Enemy.MaxHp > 0f ? Mathf.Clamp(Enemy.Hp / Enemy.MaxHp, 0f, 1f) : 0f;
-        string title = Enemy.Name == "Boss" ? "遗迹守卫 · 巨构核心" : "遗迹守卫 · 前哨";
+        string title = string.IsNullOrWhiteSpace(EnemyDisplayName) ? DefaultEnemyDisplayName : EnemyDisplayName;
 
         DrawString(font, new Vector2(bx, by - 10f), title, HorizontalAlignment.Left, -1, 15, RuinGeometryPalette.HudBossTitle);
 
@@ -233,7 +223,7 @@ public partial class CombatHud : Control
             ? Mathf.Clamp(remaining / _eventBannerFadeDuration, 0f, 1f)
             : 1f;
         Color color = _eventBannerColor with { A = _eventBannerColor.A * alpha };
-        Color shadow = new(0.05f, 0.07f, 0.10f, 0.72f * alpha);
+        Color shadow = RuinGeometryPalette.HudBannerShadow with { A = 0.72f * alpha };
 
         var pos = new Vector2(ViewportWidth * 0.5f - 220f, 120f);
         DrawString(font, pos + new Vector2(2f, 2f), _eventBannerText, HorizontalAlignment.Center, 440f, _eventBannerFontSize, shadow);
@@ -242,20 +232,14 @@ public partial class CombatHud : Control
 
     private void DrawDefeatOverlay(Font font)
     {
-        DrawRect(new Rect2(0f, 0f, ViewportWidth, ViewportHeight), new Color(0.05f, 0.04f, 0.06f, 0.52f));
+        DrawRect(new Rect2(0f, 0f, ViewportWidth, ViewportHeight), RuinGeometryPalette.HudDefeatBackdrop);
 
         Vector2 p = DefeatPanelRect.Position;
         float w = DefeatPanelRect.Size.X;
-        float h = DefeatPanelRect.Size.Y;
         const float skew = 14f;
 
-        GeometricDraw.FillAndStrokePolygon(this, new[]
-        {
-            p,
-            p + new Vector2(w, 0f),
-            p + new Vector2(w - skew, h),
-            p + new Vector2(-skew, h)
-        }, RuinGeometryPalette.HudPanelDark with { A = 0.92f }, RuinGeometryPalette.HudHp, 2f);
+        GeometricDraw.SkewedRect(this, DefeatPanelRect, skew,
+            RuinGeometryPalette.HudPanelDark with { A = 0.92f }, RuinGeometryPalette.HudHp, 2f);
 
         DrawString(font, new Vector2(p.X, p.Y + 68f),
             "已倒下", HorizontalAlignment.Center, w - skew, 40, RuinGeometryPalette.HudHp);
@@ -287,7 +271,7 @@ public partial class CombatHud : Control
         {
             DrawString(font, new Vector2(x, y),
                 $"Enemy: {Enemy.State}  HP {Enemy.Hp:0}/{Enemy.MaxHp:0}  Attack: {Enemy.CurrentAttack.Name} ({Enemy.CurrentAttack.ResponseHint})",
-                HorizontalAlignment.Left, -1, 14, new Color("ffb703"));
+                HorizontalAlignment.Left, -1, 14, RuinGeometryPalette.HudDebugEnemy);
         }
         else
         {
@@ -297,22 +281,22 @@ public partial class CombatHud : Control
         }
         y += lineStep;
 
-        DrawString(font, new Vector2(x, y), $"Combat: {_lastCombatLine}", HorizontalAlignment.Left, -1, 13, new Color("ffd166"));
+        DrawString(font, new Vector2(x, y), $"Combat: {_lastCombatLine}", HorizontalAlignment.Left, -1, 13, RuinGeometryPalette.HudDebugCombat);
         y += lineStep;
 
         float res = TimeSlow is not null ? TimeSlow.Resource : 0f;
         DrawString(font, new Vector2(x, y),
             $"Time: {_lastTimeLine} | Scale={Engine.TimeScale:0.00} Res={res:0.0}",
-            HorizontalAlignment.Left, -1, 13, new Color("c77dff"));
+            HorizontalAlignment.Left, -1, 13, RuinGeometryPalette.HudDebugTime);
         y += lineStep;
 
         DrawString(font, new Vector2(x, y),
             "Keys: A/D Space J Shift Ctrl Q K R Esc F3",
-            HorizontalAlignment.Left, -1, 12, new Color("a8dadc"));
+            HorizontalAlignment.Left, -1, 12, RuinGeometryPalette.HudDebugHint);
         y += 18f;
 
         DrawString(font, new Vector2(x, y),
             "Pad: LS Move  A Jump  X Atk  B Dodge  RB Block  LB Slow  Y Skill  Start Pause",
-            HorizontalAlignment.Left, -1, 12, new Color("a8dadc"));
+            HorizontalAlignment.Left, -1, 12, RuinGeometryPalette.HudDebugHint);
     }
 }

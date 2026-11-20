@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using ACTSpike.ACT.Combat;
+using ACTSpike.ACT.Config;
 using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.Player;
 
@@ -153,16 +154,12 @@ public static class ProceduralAudioSmoke
             failures.Add("Enemy telegraph cue mapping mismatch");
         }
 
-        if (!CombatAudioController.TryMapTimeSlowCue("time slow started (x0.35)", out var tsStart) || tsStart != CombatSfxId.TimeSlowStart)
-            failures.Add("TimeSlow start cue mapping mismatch");
-        if (!CombatAudioController.TryMapTimeSlowCue("time slow ended: key released", out var tsEnd1) || tsEnd1 != CombatSfxId.TimeSlowEnd)
-            failures.Add("TimeSlow key-released cue mapping mismatch");
-        if (!CombatAudioController.TryMapTimeSlowCue("time slow ended: resource empty", out var tsEnd2) || tsEnd2 != CombatSfxId.TimeSlowEnd)
-            failures.Add("TimeSlow resource-empty cue mapping mismatch");
-        if (CombatAudioController.TryMapTimeSlowCue("time resource reset", out _))
-            failures.Add("time resource reset should not trigger a sound cue");
+        if (CombatAudioController.MapTimeSlowCue(true) != CombatSfxId.TimeSlowStart)
+            failures.Add("TimeSlow active cue mapping mismatch");
+        if (CombatAudioController.MapTimeSlowCue(false) != CombatSfxId.TimeSlowEnd)
+            failures.Add("TimeSlow inactive cue mapping mismatch");
 
-        // Verify null-enemy attachment (TutorialStage / FormalStage), VolumeDb propagation, and clean _ExitTree teardown.
+        // Verify null-enemy attachment (TutorialStage / FormalStage), VolumeDb propagation, ActiveChanged wiring, and clean _ExitTree teardown.
         var player = arena.GetNodeOrNull<PlayerController>("Player");
         var timeSlow = arena.GetNodeOrNull<TimeSlowManager>("TimeSlowManager");
         if (player is null || timeSlow is null)
@@ -173,10 +170,28 @@ public static class ProceduralAudioSmoke
 
         var probeHost = new Node { Name = "AudioNullEnemyProbe" };
         arena.AddChild(probeHost);
-        var probeController = CombatAudioController.Attach(probeHost, player, enemy: null, timeSlow);
+        var isolatedTimeSlow = new TimeSlowManager { Name = "AudioTimeSlowProbe", Config = new TimeSlowConfig() };
+        probeHost.AddChild(isolatedTimeSlow);
+        var probeController = CombatAudioController.Attach(probeHost, player, enemy: null, isolatedTimeSlow);
         if (!probeController.IsSubscribed)
             failures.Add("probe CombatAudioController did not subscribe when attached");
         probeController.VolumeDb = -11f;
+
+        // Verify ActiveChanged triggers TimeSlowStart/TimeSlowEnd without firing on Reset while already inactive.
+        Godot.Input.ParseInputEvent(new InputEventAction { Action = "time_slow", Pressed = true });
+        Godot.Input.FlushBufferedEvents();
+        isolatedTimeSlow._Process(0.016);
+        bool startPlayed = probeController.LastCue == CombatSfxId.TimeSlowStart && probeController.PlayedCueCount == 1;
+        Godot.Input.ParseInputEvent(new InputEventAction { Action = "time_slow", Pressed = false });
+        Godot.Input.FlushBufferedEvents();
+        isolatedTimeSlow._Process(0.016);
+        bool endPlayed = probeController.LastCue == CombatSfxId.TimeSlowEnd && probeController.PlayedCueCount == 2;
+        isolatedTimeSlow.Reset();
+        bool resetSilent = probeController.PlayedCueCount == 2;
+        if (!startPlayed || !endPlayed || !resetSilent)
+            failures.Add($"ActiveChanged audio wiring mismatch: start={startPlayed} end={endPlayed} resetSilent={resetSilent}");
+
+        int baselineCount = probeController.PlayedCueCount;
 
         foreach (Node child in probeController.GetChildren())
         {
@@ -190,7 +205,7 @@ public static class ProceduralAudioSmoke
         foreach (var cue in cues)
             probeController.Play(cue);
 
-        if (probeController.PlayedCueCount != cues.Length || probeController.LastCue != cues[^1])
+        if (probeController.PlayedCueCount != baselineCount + cues.Length || probeController.LastCue != cues[^1])
             failures.Add($"probe playback count/last cue mismatch: {probeController.PlayedCueCount}, {probeController.LastCue}");
 
         foreach (Node child in probeController.GetChildren())

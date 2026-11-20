@@ -1,11 +1,9 @@
 using Godot;
-using ACTSpike.ACT.Audio;
 using ACTSpike.ACT.Combat;
 using ACTSpike.ACT.Config;
 using ACTSpike.ACT.Core;
 using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.HUD;
-using ACTSpike.ACT.Input;
 using ACTSpike.ACT.Player;
 using ACTSpike.ACT.Visual;
 
@@ -59,33 +57,31 @@ public partial class FormalStage : Node2D
         _camera = new Camera2D { Position = new Vector2(380, -80), LimitLeft = 0, LimitTop = 0, LimitRight = 1280, LimitBottom = 720 };
         _player.AddChild(_camera);
         _environment.Camera = _camera;
-        _player.Visual.BindTimeSlow(_timeSlow);
-        CombatFeedbackLayer.Attach(this, _player, _enemy, _timeSlow, _camera);
-        _hud = new CombatHud { Name = "HUD", Size = new Vector2(1280, 720), Player = _player, Enemy = _enemy, TimeSlow = _timeSlow };
-        var layer = new CanvasLayer { Name = "HUDLayer", Layer = 10 };
-        layer.AddChild(_hud);
-        AddChild(layer);
-        PauseMenuOverlay.Attach(this, _timeSlow);
-        CombatAudioController.Attach(this, _player, _enemy, _timeSlow);
-        _hud.ArenaMessage = HasEnemy ? "清除遭遇敌人后前往右侧出口" : "沿路线向右移动，抵达出口进入下一场景";
+
+        _hud = StageRuntimeWiring.MountStagePresentationAndHud(
+            this,
+            _player,
+            _enemy,
+            _timeSlow,
+            _camera,
+            HasEnemy ? "清除遭遇敌人后前往右侧出口" : "沿路线向右移动，抵达出口进入下一场景",
+            "遗迹守卫 · 前哨");
     }
 
     public override void _Process(double delta)
     {
-        if (ActInput.ResetPressed())
-        {
-            Engine.TimeScale = 1.0;
-            GetNodeOrNull<RunSession>("/root/RunSession")?.Clear();
-            GetTree().ReloadCurrentScene();
+        if (StageRuntimeWiring.HandleResetIfRequested(this, _timeSlow))
             return;
-        }
         bool ready = !HasEnemy || _enemy is not null && _enemy.IsDefeated;
         _environment.SetGateState(ExitGateId, ready ? RuinGateState.Unlocked : RuinGateState.Locked);
+        if (ready && HasEnemy)
+            _hud.IsObjectiveCleared = true;
         if (_transitioning || _player.IsDown) return;
         if (ready && _player.GlobalPosition.X >= ExitGateX)
         {
             _transitioning = true;
             GetNodeOrNull<RunSession>("/root/RunSession")?.SavePlayerHp(_player.Hp);
+            _hud.IsObjectiveCleared = true;
             _hud.ArenaMessage = "出口已到达，正在进入下一场景";
             GetTree().CreateTimer(0.35).Timeout += () => GetTree().ChangeSceneToFile(NextScene);
         }
