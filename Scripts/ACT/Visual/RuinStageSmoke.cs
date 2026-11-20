@@ -32,6 +32,15 @@ public static class RuinStageSmoke
         new(1240f, 0f, 40f, 720f)
     };
 
+    private static readonly Rect2[] ExpectedFormalEncounterRects =
+    {
+        new(0f, 560f, 1280f, 160f),
+        new(0f, 0f, 40f, 720f),
+        new(1240f, 0f, 40f, 720f),
+        new(160f, 464f, 220f, 28f),
+        new(900f, 464f, 220f, 28f)
+    };
+
     private static readonly string[] TutorialScenePaths =
     {
         "res://Scenes/Tutorial/Movement.tscn",
@@ -192,22 +201,37 @@ public static class RuinStageSmoke
         bool formalEncounterOk = CheckMountedStage(host, "res://Scenes/FormalEncounter.tscn", RuinStageTheme.FormalEncounter, fail, stage =>
         {
             var env = FindEnvironmentLayer(stage)!;
-            bool collidersOk = HasMatchingSurfacesAndColliders(stage, env, Expected1280RoomRects);
-            bool startsLocked = FindExitGateAtX(env, 1050f)?.State == RuinGateState.Locked;
+            var formal = (FormalStage)stage;
+            var encounter = formal.GetNodeOrNull<LockGateEncounterController>("LockGateEncounter");
+            var roster = formal.GetNodeOrNull<StageEnemyRoster>("EnemyRoster");
             PlayerController? player = FindChildOfType<PlayerController>(stage);
-            EnemyController? enemy = FindChildOfType<EnemyController>(stage);
-            if (player is not null && enemy is not null)
-            {
-                enemy.Bind(player, new CombatWindowConfig { BossSpawnSeconds = 0f });
-                enemy._PhysicsProcess(0.016);
-                enemy.TakeDamage(enemy.MaxHp);
-            }
-            ((FormalStage)stage)._Process(0.016);
-            bool unlocksOnDefeat = FindExitGateAtX(env, 1050f)?.State == RuinGateState.Unlocked;
 
-            if (!collidersOk || !startsLocked || !unlocksOnDefeat)
+            bool collidersOk = HasMatchingSurfacesAndColliders(stage, env, ExpectedFormalEncounterRects);
+            bool startsLocked = FindExitGateAtX(env, formal.ActiveExitGateX)?.State == RuinGateState.Locked;
+
+            bool staysLockedAfterWave1 = false;
+            bool unlocksAfterAllWaves = false;
+            if (encounter is not null && roster is not null && player is not null)
             {
-                fail($"FormalEncounter mismatch: collidersOk={collidersOk} startsLocked={startsLocked} unlocksOnDefeat={unlocksOnDefeat}");
+                encounter.InterWaveDelaySeconds = 0f;
+                DefeatCurrentRosterEnemies(roster, player);
+                formal._Process(0.016);
+                staysLockedAfterWave1 =
+                    encounter.CurrentWaveNumber == 2 &&
+                    FindExitGateAtX(env, formal.ActiveExitGateX)?.State == RuinGateState.Locked;
+
+                DefeatCurrentRosterEnemies(roster, player);
+                formal._Process(0.016);
+                DefeatCurrentRosterEnemies(roster, player);
+                formal._Process(0.016);
+                unlocksAfterAllWaves =
+                    encounter.IsEncounterCleared &&
+                    FindExitGateAtX(env, formal.ActiveExitGateX)?.State == RuinGateState.Unlocked;
+            }
+
+            if (!collidersOk || !startsLocked || !staysLockedAfterWave1 || !unlocksAfterAllWaves)
+            {
+                fail($"FormalEncounter mismatch: collidersOk={collidersOk} startsLocked={startsLocked} staysLockedW1={staysLockedAfterWave1} unlocksAfterAllWaves={unlocksAfterAllWaves}");
                 return false;
             }
             return true;
@@ -292,6 +316,21 @@ public static class RuinStageSmoke
                 return gate;
         }
         return null;
+    }
+
+    private static void DefeatCurrentRosterEnemies(StageEnemyRoster roster, PlayerController player)
+    {
+        var snapshot = new List<EnemyController>(roster.Enemies);
+        var zeroSpawn = new CombatWindowConfig { BossSpawnSeconds = 0f };
+        foreach (EnemyController enemy in snapshot)
+        {
+            if (!GodotObject.IsInstanceValid(enemy) || enemy.IsDefeated)
+                continue;
+            enemy.Bind(player, zeroSpawn);
+            enemy._PhysicsProcess(0.016);
+            Vector2 backOrigin = enemy.GlobalPosition - new Vector2(enemy.Facing * 48f, 0f);
+            enemy.TakeHit(new ACTSpike.ACT.Combat.EnemyHitContext(enemy.MaxHp + 5f, backOrigin, new Vector2(enemy.Facing, 0f)));
+        }
     }
 
     private static T? FindChildOfType<T>(Node root) where T : class

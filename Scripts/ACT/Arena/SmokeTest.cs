@@ -28,7 +28,7 @@ public partial class SmokeTest : Node
         AwaitAreaTelegraph, AwaitAreaImpact,
         AwaitBlockTelegraph, AwaitBlockImpact,
         TimeSlowProbe, TimeSlowRelease, KillBoss, AwaitBossHit,
-        DirectionalSkillProbe, EncounterConcurrencyProbe
+        DirectionalSkillProbe, EncounterConcurrencyProbe, LockGateClimbProbe
     }
 
     public PlayerController Player { get; set; } = null!;
@@ -63,6 +63,7 @@ public partial class SmokeTest : Node
     private bool _jumpProbeUsed;
     private DirectionalCombatContractSmoke.DirectionalSkillPhysicsProbe? _directionalProbe;
     private EncounterAttackCoordinatorSmoke.EncounterConcurrencyProbe? _concurrencyProbe;
+    private LockGateEncounterSmoke.LockGateClimbProbe? _lockGateClimbProbe;
 
     public override void _Ready()
     {
@@ -97,6 +98,7 @@ public partial class SmokeTest : Node
         HeavyShieldSmoke.Check(GetParent(), Fail);
         RangedArcherSmoke.Check(GetParent(), Fail);
         RuinGuardianBossSmoke.Check(GetParent(), Fail);
+        LockGateEncounterSmoke.Check(GetParent(), Fail);
         GD.Print("[Smoke] running (ACT_SMOKE=1)");
     }
 
@@ -521,6 +523,20 @@ public partial class SmokeTest : Node
                 if (_concurrencyProbe is { IsCompleted: true })
                 {
                     DisposeProbe(ref _concurrencyProbe);
+                    _lockGateClimbProbe = LockGateEncounterSmoke.StartLiveClimbProbe(GetParent(), Fail);
+                    Enter(Phase.LockGateClimbProbe, now);
+                }
+                else if (now - _phaseStart > 6f)
+                {
+                    Fail("encounter concurrency probe timed out");
+                    Finish();
+                }
+                break;
+
+            case Phase.LockGateClimbProbe:
+                if (_lockGateClimbProbe is { IsCompleted: true })
+                {
+                    DisposeProbe(ref _lockGateClimbProbe);
                     CheckPresentationEventsObserved();
                     FullChainSmoke.CheckExitHygiene(GetParent(), TimeSlow, Fail);
                     if (_failures.Count > 0)
@@ -534,7 +550,7 @@ public partial class SmokeTest : Node
                 }
                 else if (now - _phaseStart > 6f)
                 {
-                    Fail("encounter concurrency probe timed out");
+                    Fail("lock-gate climb probe timed out");
                     Finish();
                 }
                 break;
