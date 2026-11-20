@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Godot;
 using ACTSpike.ACT.Audio;
 using ACTSpike.ACT.Combat;
+using ACTSpike.ACT.Core;
 using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.HUD;
 using ACTSpike.ACT.Player;
@@ -55,6 +56,9 @@ public partial class SmokeTest : Node
     private readonly HashSet<BossAttackKind> _strikesActivated = new();
     private bool _sawEnemyDamaged;
     private bool _sawEnemyDefeated;
+    private bool _sawOverloadPulse;
+    private bool _sawPhaseTwoOverloadVerified;
+    private float _killBossStartedAt = -1f;
     private bool _skillProbeUsed;
     private bool _jumpProbeUsed;
     private DirectionalCombatContractSmoke.DirectionalSkillPhysicsProbe? _directionalProbe;
@@ -92,6 +96,7 @@ public partial class SmokeTest : Node
         MeleeScoutSmoke.Check(GetParent(), Fail);
         HeavyShieldSmoke.Check(GetParent(), Fail);
         RangedArcherSmoke.Check(GetParent(), Fail);
+        RuinGuardianBossSmoke.Check(GetParent(), Fail);
         GD.Print("[Smoke] running (ACT_SMOKE=1)");
     }
 
@@ -119,6 +124,11 @@ public partial class SmokeTest : Node
             _sawEnemyDamaged = true;
             if (cue.Defeated) _sawEnemyDefeated = true;
         };
+        Enemy.OverloadPulseTriggered += cue =>
+        {
+            if (cue.PhaseNumber == 2)
+                _sawOverloadPulse = true;
+        };
     }
 
     private void CheckPresentationEventsObserved()
@@ -127,14 +137,14 @@ public partial class SmokeTest : Node
                   _sawDodgeStart && _sawLanded &&
                   _sawHitResolved && _sawPerfectDodgeResolved && _sawPerfectBlockResolved && _sawDownResolved &&
                   _telegraphsStarted.Count == 3 && _strikesActivated.Count == 3 &&
-                  _sawEnemyDamaged && _sawEnemyDefeated;
+                  _sawEnemyDamaged && _sawEnemyDefeated && _sawOverloadPulse;
         if (ok)
-            GD.Print("[Smoke] PASS presentation events seam (player actions/defense/landing + boss telegraph/strike/damage)");
+            GD.Print("[Smoke] PASS presentation events seam (player actions/defense/landing + boss telegraph/strike/damage/overload)");
         else
             Fail($"missing presentation events: atk={_sawNormalAttackStart} skill={_sawSkillStart} hit={_sawAttackHit} " +
                  $"dodge={_sawDodgeStart} land={_sawLanded} defHit={_sawHitResolved} pDodge={_sawPerfectDodgeResolved} " +
                  $"pBlock={_sawPerfectBlockResolved} down={_sawDownResolved} tele={_telegraphsStarted.Count} " +
-                 $"strike={_strikesActivated.Count} eDmg={_sawEnemyDamaged} eDead={_sawEnemyDefeated}");
+                 $"strike={_strikesActivated.Count} eDmg={_sawEnemyDamaged} eDead={_sawEnemyDefeated} overload={_sawOverloadPulse}");
     }
 
     private void CheckGeometricPaletteAndPrimitives()
@@ -259,7 +269,10 @@ public partial class SmokeTest : Node
             case Phase.AwaitAttackHit:
                 if (Enemy.Hp < _enemyHpBeforeAttack)
                 {
-                    GD.Print($"[Smoke] PASS player attack damaged boss (hp {Enemy.Hp:0})");
+                    if (Mathf.IsEqualApprox(Enemy.MaxHp, RuinGuardianBoss.DefaultMaxHp) && Enemy.State != EnemyState.Hitstun)
+                        GD.Print($"[Smoke] PASS player attack damaged 28 HP boss with super armor (hp {Enemy.Hp:0}/{Enemy.MaxHp:0}, state {Enemy.State})");
+                    else
+                        Fail($"boss 28 HP super armor contract mismatch: hp={Enemy.Hp}/{Enemy.MaxHp} state={Enemy.State}");
                     Enter(Phase.AwaitNormalTelegraph, now);
                 }
                 else if (now - _phaseStart > 2f)
@@ -320,11 +333,48 @@ public partial class SmokeTest : Node
                         GD.Print("[Smoke] PASS break grab answered by perfect dodge");
                     else
                         Fail("break grab was not answered by dodge/K");
+                    Enter(Phase.AwaitBlockTelegraph, now);
+                }
+                break;
+
+            case Phase.AwaitBlockTelegraph:
+                if (Enemy.State != EnemyState.Telegraph)
+                    Player.Position = Enemy.Position - new Vector2(110, 0);
+                if (BeginExpectedTelegraph(BossAttackKind.Normal, now))
+                {
+                    _playerHpBeforeStrike = Player.Hp;
+                    float cueAt = _telegraphStartedAt + Enemy.CurrentAttack.TelegraphSeconds -
+                        Enemy.Windows.PerfectGuardSeconds * 0.8f;
+                    if (now >= cueAt)
+                    {
+                        SetAction("block", true);
+                        Enter(Phase.AwaitBlockImpact, now);
+                    }
+                }
+                else if (now - _phaseStart > 8f)
+                {
+                    Fail("normal telegraph for block check not observed");
+                    Enter(Phase.AwaitAreaTelegraph, now);
+                }
+                break;
+
+            case Phase.AwaitBlockImpact:
+                if (Enemy.State is EnemyState.Recover or EnemyState.Hitstun)
+                {
+                    SetAction("block", false);
+                    if (Mathf.IsEqualApprox(Player.Hp, _playerHpBeforeStrike) &&
+                        Enemy.State == EnemyState.Hitstun &&
+                        _feedback.Exists(f => f.Contains("PERFECT BLOCK")))
+                        GD.Print("[Smoke] PASS normal strike answered by perfect block (poise break)");
+                    else
+                        Fail($"normal strike was not answered by perfect block poise break (state={Enemy.State})");
                     Enter(Phase.AwaitAreaTelegraph, now);
                 }
                 break;
 
             case Phase.AwaitAreaTelegraph:
+                if (Enemy.State != EnemyState.Telegraph)
+                    Player.Position = Enemy.Position - new Vector2(300, 0);
                 if (BeginExpectedTelegraph(BossAttackKind.DelayedArea, now))
                 {
                     _playerHpBeforeStrike = Player.Hp;
@@ -342,7 +392,7 @@ public partial class SmokeTest : Node
                 else if (now - _phaseStart > 8f)
                 {
                     Fail("delayed area telegraph not observed");
-                    Enter(Phase.AwaitBlockTelegraph, now);
+                    Enter(Phase.TimeSlowProbe, now);
                 }
                 break;
 
@@ -380,46 +430,18 @@ public partial class SmokeTest : Node
                     else
                         Fail($"time scale stuck at {Engine.TimeScale:0.00}");
                     Player.Position = Enemy.Position - new Vector2(110, 0);
-                    Enter(Phase.AwaitBlockTelegraph, now);
-                }
-                break;
-
-            case Phase.AwaitBlockTelegraph:
-                if (BeginExpectedTelegraph(BossAttackKind.Normal, now))
-                {
-                    _playerHpBeforeStrike = Player.Hp;
-                    float cueAt = _telegraphStartedAt + Enemy.CurrentAttack.TelegraphSeconds -
-                        Enemy.Windows.PerfectGuardSeconds * 0.8f;
-                    if (now >= cueAt)
-                    {
-                        SetAction("block", true);
-                        Enter(Phase.AwaitBlockImpact, now);
-                    }
-                }
-                else if (now - _phaseStart > 8f)
-                {
-                    Fail("normal telegraph for block check not observed");
-                    Enter(Phase.KillBoss, now);
-                }
-                break;
-
-            case Phase.AwaitBlockImpact:
-                if (Enemy.State is EnemyState.Recover or EnemyState.Hitstun)
-                {
-                    SetAction("block", false);
-                    if (Mathf.IsEqualApprox(Player.Hp, _playerHpBeforeStrike) &&
-                        _feedback.Exists(f => f.Contains("PERFECT BLOCK")))
-                        GD.Print("[Smoke] PASS normal strike answered by perfect block");
-                    else
-                        Fail("normal strike was not answered by perfect block");
                     Enter(Phase.KillBoss, now);
                 }
                 break;
 
             case Phase.KillBoss:
                 SetAction("block", false);
+                if (_killBossStartedAt < 0f)
+                    _killBossStartedAt = now;
                 if (Enemy.State == EnemyState.Victory)
                 {
+                    if (!_sawOverloadPulse)
+                        Fail("boss was defeated without observing live Phase 2 overload pulse");
                     GD.Print("[Smoke] PASS boss defeated (state Victory)");
                     Player.TryReceiveEnemyAttack(Player.MaxHp + 1f, out _);
                     if (Player.IsDown)
@@ -435,11 +457,23 @@ public partial class SmokeTest : Node
                     }
                     break;
                 }
-                if (Enemy.State == EnemyState.Idle && now - _phaseStart > 0.25f)
+
+                if (!_sawPhaseTwoOverloadVerified && Enemy is RuinGuardianBoss { IsPhaseTwo: true } phaseTwoBoss)
                 {
-                    Player.Position = Enemy.Position - new Vector2(110, 0);
+                    _sawPhaseTwoOverloadVerified = true;
+                    GD.Print($"[Smoke] PASS live CoreLoop Phase 2 overload transition observed (hp {phaseTwoBoss.Hp:0}/{phaseTwoBoss.MaxHp:0})");
+                }
+
+                if (!Enemy.IsDefeated &&
+                    !Enemy.IsInvulnerable &&
+                    Player.State is PlayerState.Idle or PlayerState.Move &&
+                    now - _phaseStart > 0.08f)
+                {
+                    // Keep player cleanly positioned on the boss apron and deal brisk damage with skill dashes (2 dmg + i-frames)
+                    // so the full 28 HP two-phase boss fight finishes well within the headless smoke frame budget.
+                    Player.Position = Enemy.Position - new Vector2(95, 0);
                     _enemyHpBeforeAttack = Enemy.Hp;
-                    if (!_skillProbeUsed)
+                    if (!_skillProbeUsed || Enemy.Hp > 1f)
                     {
                         _skillProbeUsed = true;
                         Tap("skill");
@@ -450,15 +484,17 @@ public partial class SmokeTest : Node
                     }
                     Enter(Phase.AwaitBossHit, now);
                 }
-                else if (now - _phaseStart > 15f)
+                else if (now - _killBossStartedAt > 18f)
                 {
-                    Fail("boss could not be defeated with player attacks");
+                    Fail($"boss could not be defeated with player attacks (hp={Enemy.Hp:0}/{Enemy.MaxHp:0}, state={Enemy.State}, invuln={Enemy.IsInvulnerable})");
                     Finish();
                 }
                 break;
 
             case Phase.AwaitBossHit:
-                if (Enemy.Hp < _enemyHpBeforeAttack || Enemy.IsDefeated)
+                if (Enemy.Hp < _enemyHpBeforeAttack || Enemy.IsDefeated || Enemy.IsInvulnerable)
+                    Enter(Phase.KillBoss, now);
+                else if (now - _phaseStart > 0.45f && Player.State is PlayerState.Idle or PlayerState.Move or PlayerState.Hitstun)
                     Enter(Phase.KillBoss, now);
                 else if (now - _phaseStart > 3f)
                 {

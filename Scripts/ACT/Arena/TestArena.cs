@@ -59,7 +59,8 @@ public partial class TestArena : Node2D
             Name = "Boss",
             DisplayName = RuinGuardianBoss.DefaultDisplayName,
             Position = EnemySpawn,
-            MaxHp = 6f,
+            ArenaMinX = BossBoundaryX + 36f,
+            ArenaMaxX = ArenaWidth - 76f,
             Windows = _windows
         };
         AddChild(_enemy);

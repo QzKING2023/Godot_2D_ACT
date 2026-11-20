@@ -202,6 +202,12 @@ public partial class EnemyController : CharacterBody2D
         if (!IsOnFloor()) Velocity = Velocity with { Y = Velocity.Y + Gravity * dt };
         UpdateFacing();
 
+        if (ProcessCustomPhysicsState(dt))
+        {
+            MoveAndSlide();
+            return;
+        }
+
         switch (State)
         {
             case EnemyState.Spawn:
@@ -232,14 +238,11 @@ public partial class EnemyController : CharacterBody2D
             case EnemyState.Strike:
                 if (!_strikeResolved) ResolveStrike();
                 if (State == EnemyState.Strike && Now >= _stateEndsAt)
-                {
-                    _stateEndsAt = Now + CurrentAttack.RecoverySeconds;
-                    SetState(EnemyState.Recover, $"{CurrentAttack.Name} active window ended");
-                }
+                    OnStrikeEnded();
                 break;
             case EnemyState.Recover:
                 Velocity = Velocity with { X = 0 };
-                if (Now >= _stateEndsAt) SetState(EnemyState.Idle, "recovered");
+                if (Now >= _stateEndsAt) OnRecoverEnded();
                 break;
             default:
                 ThinkIdleOrChase();
@@ -247,6 +250,21 @@ public partial class EnemyController : CharacterBody2D
         }
         MoveAndSlide();
     }
+
+    protected virtual bool ProcessCustomPhysicsState(float dt) => false;
+
+    protected virtual void OnStrikeEnded()
+    {
+        _stateEndsAt = Now + CurrentAttack.RecoverySeconds;
+        SetState(EnemyState.Recover, $"{CurrentAttack.Name} active window ended");
+    }
+
+    protected virtual void OnRecoverEnded()
+    {
+        SetState(EnemyState.Idle, "recovered");
+    }
+
+    protected void ClearPendingAttack() => _hasPendingAttack = false;
 
     protected virtual void UpdateFacing()
     {
@@ -373,8 +391,7 @@ public partial class EnemyController : CharacterBody2D
         GD.Print(answered
             ? $"[Enemy] {CurrentAttack.Name} answered: {resolution.Result}"
             : $"[Enemy] {CurrentAttack.Name} landed: {resolution.Result} (player hp {_player.Hp:0})");
-        if (resolution.EnemyStaggered)
-            EnterHitstun("staggered by perfect block");
+        OnStrikeResolved(resolution);
 
         SetNextAttackCooldown(Windows.EnemyAttackCooldown);
     }
@@ -386,6 +403,16 @@ public partial class EnemyController : CharacterBody2D
 
     protected virtual bool ShouldDeflectHit(in EnemyHitContext hit)
         => IsFrontalDefenseActive && hit.IsFrontalStrike(GlobalPosition, Facing);
+
+    protected virtual bool ShouldEnterHitstunOnDamage(in EnemyHitContext hit) => true;
+
+    protected virtual void OnDamagedPostApply(in EnemyHitContext hit, bool defeated) { }
+
+    protected virtual void OnStrikeResolved(AttackResolution resolution)
+    {
+        if (resolution.EnemyStaggered)
+            EnterHitstun("staggered by perfect block");
+    }
 
     /// <summary>
     /// Resolves an incoming directional strike against this enemy, supporting frontal shield
@@ -421,12 +448,14 @@ public partial class EnemyController : CharacterBody2D
             _stateEndsAt = Now + Windows.VictoryDelaySeconds;
             SetState(EnemyState.Dead, "destroyed");
             Damaged?.Invoke(new EnemyDamagedCue(hit.Damage, Hp, MaxHp, Defeated: true, GlobalPosition));
+            OnDamagedPostApply(hit, defeated: true);
             return EnemyHitOutcome.Damaged;
         }
 
-        if (State != EnemyState.ShieldBroken)
+        if (State != EnemyState.ShieldBroken && ShouldEnterHitstunOnDamage(hit))
             EnterHitstun($"took {hit.Damage:0} damage");
         Damaged?.Invoke(new EnemyDamagedCue(hit.Damage, Hp, MaxHp, Defeated: false, GlobalPosition));
+        OnDamagedPostApply(hit, defeated: false);
         return EnemyHitOutcome.Damaged;
     }
 
@@ -451,10 +480,12 @@ public partial class EnemyController : CharacterBody2D
         SetState(EnemyState.ShieldBroken, reason);
     }
 
-    protected void EnterHitstun(string reason)
+    protected void EnterHitstun(string reason) => EnterHitstun(reason, Windows.HitstunSeconds);
+
+    protected void EnterHitstun(string reason, float durationSeconds)
     {
         ReleaseAttackToken();
-        _stateEndsAt = Now + Windows.HitstunSeconds;
+        _stateEndsAt = Now + Mathf.Max(0f, durationSeconds);
         SetState(EnemyState.Hitstun, reason);
     }
 

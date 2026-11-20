@@ -104,6 +104,12 @@ public static class RuinGeometryPalette
     public static readonly Color MenuPauseBackdrop = new(0.04f, 0.06f, 0.09f, 0.72f);
     public static readonly Color MenuTitleScrim = new(0.06f, 0.08f, 0.12f, 0.56f);
 
+    // 遗迹守卫二阶段过载护甲裂隙与推人脉冲语义色
+    public static readonly Color BossOverloadFissureCore = new("fff0b8");
+    public static readonly Color BossOverloadFissureGlow = new("ff6b35");
+    public static readonly Color BossOverloadPulseRing = new("ff924c");
+    public static readonly Color HudBossOverloadBanner = new("ff9f5a");
+
     public static Color ForTelegraph(BossAttackKind kind) => kind switch
     {
         BossAttackKind.BreakGrab => TelegraphBreakGrab,
