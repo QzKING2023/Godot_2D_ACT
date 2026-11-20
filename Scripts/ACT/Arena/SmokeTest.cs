@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Godot;
+using ACTSpike.ACT.Audio;
 using ACTSpike.ACT.Combat;
 using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.Player;
@@ -70,6 +71,7 @@ public partial class SmokeTest : Node
         CheckGeometricPaletteAndPrimitives();
         RuinStageSmoke.Check(GetParent(), Fail);
         CheckAttackContractDifferences();
+        ProceduralAudioSmoke.Check(GetParent());
         GD.Print("[Smoke] running (ACT_SMOKE=1)");
     }
 
