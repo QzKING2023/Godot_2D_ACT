@@ -38,9 +38,6 @@ public partial class CombatFeedbackLayer : Node2D
         public float Width;
     }
 
-    private static readonly Color DodgeTeal = new("72efdd");
-    private static readonly Color HitCrimson = new("ff4769");
-
     private readonly List<BurstParticle> _particles = new();
     private readonly List<RingPulse> _rings = new();
     private readonly RandomNumberGenerator _rng = new();
@@ -61,6 +58,7 @@ public partial class CombatFeedbackLayer : Node2D
 
     public int ActiveParticleCount => _particles.Count;
     public int ActiveRingCount => _rings.Count;
+    public float ShakeIntensity => _shakeIntensity;
     public float TimeSlowBlend => _timeSlowBlend;
     public bool IsHitstopActive => _hitstopRemainingSec > 0f;
     public CanvasLayer TimeSlowFieldLayer => EnsureTimeSlowOverlay();
@@ -314,6 +312,11 @@ public partial class CombatFeedbackLayer : Node2D
         }
     }
 
+    private void TriggerShake(float intensity)
+    {
+        _shakeIntensity = Mathf.Max(_shakeIntensity, intensity);
+    }
+
     private void TriggerHitstop(float durationSeconds)
     {
         // Visual-only freeze (~50ms); never touch Engine.TimeScale and auto-skip in ACT_SMOKE=1.
@@ -374,12 +377,14 @@ public partial class CombatFeedbackLayer : Node2D
     private void OnPlayerAttackLanded(PlayerHitCue cue)
     {
         TriggerHitstop(0.05f);
+        TriggerShake(cue.IsSkill ? 7f : 5f);
+        SpawnRing(cue.HitPosition, 10f, cue.IsSkill ? 78f : 62f, 0.24f, RuinGeometryPalette.PlayerBlade, 3.5f);
         SpawnBurst(cue.HitPosition, 6, Colors.White, 240f, ParticleShape.Spark);
     }
 
     private void OnPlayerDodgeStarted(PlayerDodgeCue cue)
     {
-        SpawnRing(cue.Origin, 10f, 44f, 0.22f, DodgeTeal, 2.5f);
+        SpawnRing(cue.Origin, 10f, 44f, 0.22f, RuinGeometryPalette.DodgeTeal, 2.5f);
     }
 
     private void OnPlayerLanded(Vector2 pos)
@@ -395,7 +400,7 @@ public partial class CombatFeedbackLayer : Node2D
             case DefenseResult.PerfectBlocked:
             {
                 TriggerHitstop(0.055f);
-                _shakeIntensity = Mathf.Max(_shakeIntensity, 9f);
+                TriggerShake(9f);
                 Vector2 blockPos = cue.Position + new Vector2(facing * 20f, 0f);
                 SpawnRing(blockPos, 12f, 95f, 0.34f, RuinGeometryPalette.PlayerBlade, 5f);
                 SpawnBurst(blockPos, 18, RuinGeometryPalette.PlayerBlade, 360f, ParticleShape.Diamond);
@@ -404,14 +409,16 @@ public partial class CombatFeedbackLayer : Node2D
             case DefenseResult.PerfectDodged:
             {
                 TriggerHitstop(0.045f);
-                SpawnRing(cue.Position, 12f, 88f, 0.32f, DodgeTeal, 4.5f);
-                SpawnBurst(cue.Position, 16, DodgeTeal, 340f, ParticleShape.Spark);
+                TriggerShake(6f);
+                SpawnRing(cue.Position, 12f, 88f, 0.32f, RuinGeometryPalette.DodgeTeal, 4.5f);
+                SpawnBurst(cue.Position, 16, RuinGeometryPalette.DodgeTeal, 340f, ParticleShape.Spark);
                 break;
             }
             case DefenseResult.Blocked when !cue.GuardBroken:
             {
-                _shakeIntensity = Mathf.Max(_shakeIntensity, 4f);
+                TriggerShake(4f);
                 Vector2 guardPos = cue.Position + new Vector2(facing * 20f, 0f);
+                SpawnRing(guardPos, 10f, 58f, 0.24f, RuinGeometryPalette.PlayerShieldEdge, 3.5f);
                 SpawnBurst(guardPos, 8, RuinGeometryPalette.PlayerShieldEdge, 220f, ParticleShape.Shard);
                 break;
             }
@@ -419,8 +426,9 @@ public partial class CombatFeedbackLayer : Node2D
             case DefenseResult.Blocked when cue.GuardBroken:
             {
                 TriggerHitstop(0.05f);
-                _shakeIntensity = Mathf.Max(_shakeIntensity, 10f);
-                SpawnBurst(cue.Position, 12, HitCrimson, 280f, ParticleShape.Shard);
+                TriggerShake(10f);
+                SpawnRing(cue.Position, 14f, 82f, 0.30f, RuinGeometryPalette.HitCrimson, 4.5f);
+                SpawnBurst(cue.Position, 12, RuinGeometryPalette.HitCrimson, 280f, ParticleShape.Shard);
                 break;
             }
         }
@@ -428,7 +436,7 @@ public partial class CombatFeedbackLayer : Node2D
 
     private void OnEnemyStrikeActivated(EnemyStrikeCue cue)
     {
-        _shakeIntensity = Mathf.Max(_shakeIntensity, 8f);
+        TriggerShake(8f);
         Color col = RuinGeometryPalette.ForTelegraph(cue.Attack.Kind);
         float endRadius = cue.Attack.Kind == BossAttackKind.DelayedArea ? cue.Attack.HazardRadius : 120f;
         SpawnRing(cue.Origin, 20f, endRadius, 0.28f, col, 4f);
@@ -437,7 +445,7 @@ public partial class CombatFeedbackLayer : Node2D
     private void OnEnemyDamaged(EnemyDamagedCue cue)
     {
         TriggerHitstop(cue.Defeated ? 0.065f : 0.05f);
-        _shakeIntensity = Mathf.Max(_shakeIntensity, cue.Defeated ? 11f : 6f);
+        TriggerShake(cue.Defeated ? 11f : 6f);
         int facing = _player is not null && GodotObject.IsInstanceValid(_player) && _player.GlobalPosition.X >= cue.Position.X
             ? 1
             : -1;

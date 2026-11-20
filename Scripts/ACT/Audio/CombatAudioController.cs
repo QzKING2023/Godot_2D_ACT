@@ -13,14 +13,13 @@ namespace ACTSpike.ACT.Audio;
 /// </summary>
 public partial class CombatAudioController : Node
 {
-    private const int MinPoolSize = 1;
+    private const int VoicePoolSize = 8;
 
     private readonly List<AudioStreamPlayer> _pool = new();
     private PlayerController? _player;
     private EnemyController? _enemy;
     private TimeSlowManager? _timeSlow;
     private float _volumeDb = -6f;
-    private int _poolSize = 8;
     private int _nextVoiceIndex;
     private bool _subscribed;
     private bool _silent;
@@ -35,14 +34,6 @@ public partial class CombatAudioController : Node
             _volumeDb = value;
             ApplyVolumeToPool();
         }
-    }
-
-    /// <summary>Number of polyphonic AudioStreamPlayer voices created on startup.</summary>
-    [Export]
-    public int PoolSize
-    {
-        get => _poolSize;
-        set => _poolSize = Math.Max(MinPoolSize, value);
     }
 
     public int PoolCount => _pool.Count;
@@ -151,32 +142,15 @@ public partial class CombatAudioController : Node
         _ => CombatSfxId.TelegraphNormal
     };
 
-    /// <summary>Maps TimeSlowManager state messages to start/end sweep cues.</summary>
-    public static bool TryMapTimeSlowCue(string? stateMessage, out CombatSfxId cue)
-    {
-        if (!string.IsNullOrEmpty(stateMessage))
-        {
-            if (stateMessage.StartsWith("time slow started", StringComparison.Ordinal))
-            {
-                cue = CombatSfxId.TimeSlowStart;
-                return true;
-            }
-            if (stateMessage.StartsWith("time slow ended", StringComparison.Ordinal))
-            {
-                cue = CombatSfxId.TimeSlowEnd;
-                return true;
-            }
-        }
-        cue = default;
-        return false;
-    }
+    /// <summary>Maps TimeSlowManager active transitions to start/end sweep cues.</summary>
+    public static CombatSfxId MapTimeSlowCue(bool active)
+        => active ? CombatSfxId.TimeSlowStart : CombatSfxId.TimeSlowEnd;
 
     private void EnsurePool()
     {
         if (_pool.Count > 0) return;
 
-        int count = Math.Max(MinPoolSize, _poolSize);
-        for (int i = 0; i < count; i++)
+        for (int i = 0; i < VoicePoolSize; i++)
         {
             var voice = new AudioStreamPlayer
             {
@@ -226,7 +200,7 @@ public partial class CombatAudioController : Node
         _player.DefenseResolved += OnDefenseResolved;
         if (_enemy is not null)
             _enemy.TelegraphStarted += OnTelegraphStarted;
-        _timeSlow.StateChanged += OnTimeSlowStateChanged;
+        _timeSlow.ActiveChanged += OnTimeSlowActiveChanged;
 
         _subscribed = true;
     }
@@ -245,7 +219,7 @@ public partial class CombatAudioController : Node
         if (_enemy is not null)
             _enemy.TelegraphStarted -= OnTelegraphStarted;
         if (_timeSlow is not null)
-            _timeSlow.StateChanged -= OnTimeSlowStateChanged;
+            _timeSlow.ActiveChanged -= OnTimeSlowActiveChanged;
 
         _subscribed = false;
     }
@@ -268,9 +242,6 @@ public partial class CombatAudioController : Node
     private void OnTelegraphStarted(EnemyTelegraphCue cue)
         => Play(MapTelegraphCue(cue.Attack.Kind));
 
-    private void OnTimeSlowStateChanged(string stateMessage)
-    {
-        if (TryMapTimeSlowCue(stateMessage, out var sfx))
-            Play(sfx);
-    }
+    private void OnTimeSlowActiveChanged(bool active)
+        => Play(MapTimeSlowCue(active));
 }

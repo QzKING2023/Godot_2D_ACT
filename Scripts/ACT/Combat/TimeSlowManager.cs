@@ -18,9 +18,12 @@ public partial class TimeSlowManager : Node
     public bool Active { get; private set; }
 
     public event Action<string>? StateChanged;
+    public event Action<bool>? ActiveChanged;
 
     private float _lastMsec = -1f;
     private bool _activationArmed = true;
+
+    public static void EnsureNormalScale() => Engine.TimeScale = 1.0;
 
     public override void _Ready()
     {
@@ -46,19 +49,16 @@ public partial class TimeSlowManager : Node
 
         if (Active && mustStop)
         {
-            Active = false;
             _activationArmed = false;
-            StateChanged?.Invoke("time slow ended: resource empty");
+            SetActive(false, "time slow ended: resource empty");
         }
         else if (Active && !keyHeld)
         {
-            Active = false;
-            StateChanged?.Invoke("time slow ended: key released");
+            SetActive(false, "time slow ended: key released");
         }
         else if (!Active && canActivate)
         {
-            Active = true;
-            StateChanged?.Invoke($"time slow started (x{Config.TimeScale:0.00})");
+            SetActive(true, $"time slow started (x{Config.TimeScale:0.00})");
         }
         if (!keyHeld) _activationArmed = true; // re-arm after release
 
@@ -70,9 +70,8 @@ public partial class TimeSlowManager : Node
             // extra slowed frame until the next _Process call.
             if (Resource <= 0f)
             {
-                Active = false;
                 _activationArmed = false;
-                StateChanged?.Invoke("time slow ended: resource empty");
+                SetActive(false, "time slow ended: resource empty");
             }
         }
         else
@@ -88,14 +87,25 @@ public partial class TimeSlowManager : Node
 
     public float ResourceFraction => Resource / Config.MaxResource;
 
+    public void SetPaused(bool paused)
+    {
+        if (paused)
+        {
+            HandlePaused();
+            return;
+        }
+
+        _lastMsec = -1f;
+        Engine.TimeScale = Active ? Config.TimeScale : 1.0;
+    }
+
     public void Reset()
     {
         Resource = Config.MaxResource;
-        Active = false;
         _activationArmed = true;
         _lastMsec = -1f;
         Engine.TimeScale = 1.0;
-        StateChanged?.Invoke("time resource reset");
+        SetActive(false, "time resource reset");
     }
 
     public override void _Notification(int what)
@@ -108,7 +118,18 @@ public partial class TimeSlowManager : Node
 
     public override void _ExitTree()
     {
+        Active = false;
         Engine.TimeScale = 1.0; // never leak a slowed engine state
+    }
+
+    private void SetActive(bool next, string? stateMessage = null)
+    {
+        bool changed = Active != next;
+        Active = next;
+        if (changed)
+            ActiveChanged?.Invoke(next);
+        if (!string.IsNullOrEmpty(stateMessage))
+            StateChanged?.Invoke(stateMessage);
     }
 
     private void HandlePaused()
@@ -116,9 +137,6 @@ public partial class TimeSlowManager : Node
         Engine.TimeScale = 1.0;
         _lastMsec = -1f;
         if (Active)
-        {
-            Active = false;
-            StateChanged?.Invoke("time slow ended: paused");
-        }
+            SetActive(false, "time slow ended: paused");
     }
 }

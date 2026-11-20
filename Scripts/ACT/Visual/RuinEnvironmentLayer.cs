@@ -21,14 +21,6 @@ public readonly record struct RuinGateEntry(string Id, Vector2 BasePosition, Rui
 /// </summary>
 public partial class RuinEnvironmentLayer : Node2D
 {
-    private static readonly Color TowerRackShadow = new("3d4152");
-    private static readonly Color TowerRackLit = new("b0805c");
-    private static readonly Color TowerRackCap = new("c59268");
-    private static readonly Color PillarLintelShadow = new("3a3f4f");
-    private static readonly Color PillarLintelLit = new("b37b51");
-    private static readonly Color GateStoneShadow = new("252d3d");
-    private static readonly Color GateStoneLit = new("5a4942");
-
     private readonly List<RuinSurfaceEntry> _surfaces = new();
     private readonly List<RuinGateEntry> _gates = new();
     private readonly Dictionary<string, int> _gateIndexById = new();
@@ -47,6 +39,19 @@ public partial class RuinEnvironmentLayer : Node2D
     public Node2D WorldDrawer { get; private set; } = null!;
     public IReadOnlyList<RuinSurfaceEntry> Surfaces => _surfaces;
     public IReadOnlyList<RuinGateEntry> Gates => _gates;
+
+    public static RuinEnvironmentLayer CreateMenuBackdrop(Node parent, RuinStageTheme theme)
+    {
+        var environment = new RuinEnvironmentLayer
+        {
+            Name = "RuinEnvironment",
+            Theme = theme,
+            FallbackCameraCenter = new Vector2(640f, 360f)
+        };
+        parent.AddChild(environment);
+        environment.RegisterSurface(new Rect2(0f, 560f, 1280f, 160f));
+        return environment;
+    }
 
     public override void _Ready()
     {
@@ -206,9 +211,9 @@ public partial class RuinEnvironmentLayer : Node2D
         foreach (float offset in rackOffsets)
         {
             float ry = towerBaseY - offset * s;
-            _backdropCanvas.DrawRect(new Rect2(tx - 92f * s, ry, 96f * s, 12f * s), TowerRackShadow);
-            _backdropCanvas.DrawRect(new Rect2(tx + 4f * s, ry, 108f * s, 12f * s), TowerRackLit);
-            _backdropCanvas.DrawRect(new Rect2(tx + 78f * s, ry - 18f * s, 14f * s, 30f * s), TowerRackCap);
+            _backdropCanvas.DrawRect(new Rect2(tx - 92f * s, ry, 96f * s, 12f * s), RuinGeometryPalette.TowerRackShadow);
+            _backdropCanvas.DrawRect(new Rect2(tx + 4f * s, ry, 108f * s, 12f * s), RuinGeometryPalette.TowerRackLit);
+            _backdropCanvas.DrawRect(new Rect2(tx + 78f * s, ry - 18f * s, 14f * s, 30f * s), RuinGeometryPalette.TowerRackCap);
         }
 
         // 3. Far「干旱草原荒原」rolling arid hills
@@ -251,8 +256,8 @@ public partial class RuinEnvironmentLayer : Node2D
             }, RuinGeometryPalette.PillarLit);
 
             float lintelY = pillarBaseY - 330f * ps;
-            _backdropCanvas.DrawRect(new Rect2(x - 42f * ps, lintelY, 90f * ps, 14f * ps), PillarLintelShadow);
-            _backdropCanvas.DrawRect(new Rect2(x + 6f * ps, lintelY, 42f * ps, 6f * ps), PillarLintelLit);
+            _backdropCanvas.DrawRect(new Rect2(x - 42f * ps, lintelY, 90f * ps, 14f * ps), RuinGeometryPalette.PillarLintelShadow);
+            _backdropCanvas.DrawRect(new Rect2(x + 6f * ps, lintelY, 42f * ps, 6f * ps), RuinGeometryPalette.PillarLintelLit);
         }
     }
 
@@ -279,14 +284,14 @@ public partial class RuinEnvironmentLayer : Node2D
             new Vector2(x - 6f, y - 135f),
             new Vector2(x + 2f, y - 148f),
             new Vector2(x + 2f, y)
-        }, GateStoneShadow);
+        }, RuinGeometryPalette.GateStoneShadow);
         GeometricDraw.FillPolygon(canvas, new[]
         {
             new Vector2(x + 2f, y - 148f),
             new Vector2(x + 12f, y - 132f),
             new Vector2(x + 14f, y),
             new Vector2(x + 2f, y)
-        }, GateStoneLit);
+        }, RuinGeometryPalette.GateStoneLit);
 
         GeometricDraw.Diamond(canvas, new Vector2(x, y - 164f), 10f, 14f, accent);
         float beamAlpha = gate.State == RuinGateState.Locked ? 0.14f : 0.28f;

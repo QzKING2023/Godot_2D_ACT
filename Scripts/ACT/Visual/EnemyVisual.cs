@@ -36,9 +36,6 @@ public partial class EnemyVisual : Node2D
         new(-14f, -20f), new(14f, -20f), new(8f, -12f), new(-8f, -12f)
     };
 
-    private static readonly Color DefeatedEyeColor = new("5a6270");
-    private static readonly Color DelayedAreaCountdownRing = new("f0d6ff");
-
     private EnemyController? _enemy;
     private PlayerController? _player;
     private TimeSlowManager? _timeSlow;
@@ -150,8 +147,8 @@ public partial class EnemyVisual : Node2D
                     float range = e.CurrentAttack.Range;
                     float ang = _facing > 0 ? 0f : Mathf.Pi;
                     float spread = 0.85f;
-                    var fillArcColor = new Color(1f, 0.82f, 0.32f, (0.25f + 0.45f * prog) * shimmer);
-                    var edgeColor = RuinGeometryPalette.TelegraphNormal with { A = 0.90f * shimmer };
+                    Color fillArcColor = RuinGeometryPalette.TelegraphNormalFill with { A = (0.25f + 0.45f * prog) * shimmer };
+                    Color edgeColor = RuinGeometryPalette.TelegraphNormal with { A = 0.90f * shimmer };
                     DrawArc(Vector2.Zero, range * (0.45f + 0.55f * prog), ang - spread, ang + spread, 24, fillArcColor, 18f, true);
                     DrawArc(Vector2.Zero, range, ang - spread, ang + spread, 24, edgeColor, 3.5f, true);
                     DrawLine(Vector2.Zero, Vector2.FromAngle(ang - spread) * range, edgeColor with { A = 0.35f * shimmer }, 2f, true);
@@ -165,8 +162,8 @@ public partial class EnemyVisual : Node2D
                 {
                     float range = e.CurrentAttack.Range;
                     var dangerRect = new Rect2(-range, -58f, range * 2f, 116f);
-                    DrawRect(dangerRect, new Color(0.95f, 0.22f, 0.36f, (0.14f + 0.16f * prog) * shimmer), true);
-                    DrawRect(dangerRect, new Color("ff4769") with { A = shimmer }, false, 4f);
+                    DrawRect(dangerRect, RuinGeometryPalette.TelegraphBreakGrabFill with { A = (0.14f + 0.16f * prog) * shimmer }, true);
+                    DrawRect(dangerRect, RuinGeometryPalette.HitCrimson with { A = shimmer }, false, 4f);
                     if (timeSlowActive)
                     {
                         var outerRect = new Rect2(-range - 4f, -62f, range * 2f + 8f, 124f);
@@ -184,11 +181,11 @@ public partial class EnemyVisual : Node2D
                 case BossAttackKind.DelayedArea:
                 {
                     float radius = e.CurrentAttack.HazardRadius;
-                    DrawCircle(Vector2.Zero, radius, new Color(0.60f, 0.32f, 0.90f, (0.14f + 0.12f * prog) * shimmer));
+                    DrawCircle(Vector2.Zero, radius, RuinGeometryPalette.TelegraphDelayedAreaFill with { A = (0.14f + 0.12f * prog) * shimmer });
                     DrawArc(Vector2.Zero, radius, 0f, Mathf.Tau, 40,
                         RuinGeometryPalette.TelegraphDelayedArea with { A = shimmer }, 4f, true);
                     DrawArc(Vector2.Zero, Mathf.Max(6f, radius * inv), 0f, Mathf.Tau, 32,
-                        DelayedAreaCountdownRing with { A = shimmer }, 5f, true);
+                        RuinGeometryPalette.DelayedAreaCountdown with { A = shimmer }, 5f, true);
                     if (timeSlowActive)
                         DrawArc(Vector2.Zero, radius + 5f, 0f, Mathf.Tau, 40,
                             RuinGeometryPalette.TimeSlowEdge with { A = 0.28f * shimmer }, 2f, true);
@@ -200,7 +197,7 @@ public partial class EnemyVisual : Node2D
         {
             if (e.CurrentAttackKind == BossAttackKind.DelayedArea)
             {
-                DrawCircle(Vector2.Zero, e.CurrentAttack.HazardRadius, new Color(0.76f, 0.42f, 1f, 0.35f));
+                DrawCircle(Vector2.Zero, e.CurrentAttack.HazardRadius, RuinGeometryPalette.TelegraphDelayedAreaStrike);
             }
             else
             {
@@ -232,7 +229,7 @@ public partial class EnemyVisual : Node2D
             : e.IsDefeated ? RuinGeometryPalette.BossDefeatedLit : RuinGeometryPalette.BossPauldronHighlight;
         Color eyeColor = e.State == EnemyState.Telegraph
             ? RuinGeometryPalette.ForTelegraph(e.CurrentAttackKind)
-            : e.IsDefeated ? DefeatedEyeColor : RuinGeometryPalette.BossEyeIdle;
+            : e.IsDefeated ? RuinGeometryPalette.BossDefeatedEye : RuinGeometryPalette.BossEyeIdle;
 
         GeometricDraw.FillPolygon(this, GeometricDraw.TransformPoints(LeftCorePoints, bodyOrigin), darkArmor);
         GeometricDraw.FillPolygon(this, GeometricDraw.TransformPoints(RightCorePoints, bodyOrigin), litArmor);

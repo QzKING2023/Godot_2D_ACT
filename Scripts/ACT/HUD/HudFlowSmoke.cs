@@ -26,6 +26,7 @@ public static class HudFlowSmoke
         CheckPauseMenuAttached(coreLoop, failures);
         CheckCombatHudContract(coreLoop, failures);
         CheckVictoryScreenContract(coreLoop, failures);
+        CheckStageWiringAndTutorialCopyContract(coreLoop, failures);
 
         if (failures.Count == 0)
         {
@@ -161,11 +162,13 @@ public static class HudFlowSmoke
 
     private static void CheckTimeSlowPauseSafety(Node host, List<string> failures)
     {
+        var activeTransitions = new List<bool>();
         var probe = new TimeSlowManager
         {
             Name = "TimeSlowPauseProbe",
             Config = new TimeSlowConfig()
         };
+        probe.ActiveChanged += active => activeTransitions.Add(active);
         host.AddChild(probe);
         try
         {
@@ -174,22 +177,26 @@ public static class HudFlowSmoke
             if (!probe.Active || Mathf.IsEqualApprox((float)Engine.TimeScale, 1.0f))
                 failures.Add("TimeSlow probe failed to activate before pause check");
 
-            probe.Notification((int)Node.NotificationPaused);
+            probe.SetPaused(true);
             if (!Mathf.IsEqualApprox((float)Engine.TimeScale, 1.0f))
                 failures.Add($"Engine.TimeScale leaked during pause: {Engine.TimeScale:0.00}");
             if (probe.Active)
-                failures.Add("TimeSlow stayed Active across NotificationPaused");
+                failures.Add("TimeSlow stayed Active across SetPaused(true)");
 
             SendAction("time_slow", false);
-            probe.Notification((int)Node.NotificationUnpaused);
+            probe.SetPaused(false);
             probe._Process(0.016);
             if (!Mathf.IsEqualApprox((float)Engine.TimeScale, 1.0f))
                 failures.Add($"Engine.TimeScale did not stay 1.0 after unpause: {Engine.TimeScale:0.00}");
+
+            if (activeTransitions.Count != 2 || !activeTransitions[0] || activeTransitions[1])
+                failures.Add($"TimeSlow ActiveChanged expected [True, False], got [{string.Join(", ", activeTransitions)}]");
         }
         finally
         {
             SendAction("time_slow", false);
-            Engine.TimeScale = 1.0;
+            probe.Reset();
+            TimeSlowManager.EnsureNormalScale();
             host.RemoveChild(probe);
             probe.Free();
         }
@@ -294,6 +301,9 @@ public static class HudFlowSmoke
             failures.Add($"CombatHud ArenaMessage still uses placeholder English: '{hud.ArenaMessage}'");
         }
 
+        if (hud.EnemyDisplayName != "遗迹守卫 · 巨构核心")
+            failures.Add($"CoreLoop CombatHud.EnemyDisplayName mismatch: '{hud.EnemyDisplayName}'");
+
         if (hud.DebugOverlayVisible)
             failures.Add("CombatHud.DebugOverlayVisible must default to false");
 
@@ -342,6 +352,17 @@ public static class HudFlowSmoke
         {
             // Land on probe floor so IsOnFloor() is true for block
             probePlayer._PhysicsProcess(0.05);
+
+            // Ensure ReportCombat updates LastCombatLine for F3 without string-matching event banners, and ReportTime updates LastTimeLine.
+            probeHud.ReportCombat("PERFECT BLOCK (string ignored for banner)");
+            if (probeHud.LastCombatLine != "PERFECT BLOCK (string ignored for banner)" ||
+                !string.IsNullOrEmpty(probeHud.CurrentEventBannerText))
+            {
+                failures.Add($"CombatHud.ReportCombat banner decoupling mismatch: line='{probeHud.LastCombatLine}' banner='{probeHud.CurrentEventBannerText}'");
+            }
+            probeHud.ReportTime("time slow probe line");
+            if (probeHud.LastTimeLine != "time slow probe line")
+                failures.Add($"CombatHud.LastTimeLine mismatch: '{probeHud.LastTimeLine}'");
 
             // 1. Perfect Block -> "完美格挡 · 震慑破势"
             SendAction("block", true);
@@ -432,5 +453,94 @@ public static class HudFlowSmoke
             coreLoop.RemoveChild(node);
             node.Free();
         }
+    }
+
+    private static void CheckStageWiringAndTutorialCopyContract(Node coreLoop, List<string> failures)
+    {
+        Camera2D? prevCam = coreLoop.GetViewport()?.GetCamera2D();
+
+        // 1. PerfectDefense tutorial copy matches Variant A telegraphs (no stale "红色闪光" text).
+        var perfectDefPacked = GD.Load<PackedScene>("res://Scenes/Tutorial/PerfectDefense.tscn");
+        if (perfectDefPacked is null)
+        {
+            failures.Add("failed to load res://Scenes/Tutorial/PerfectDefense.tscn");
+        }
+        else
+        {
+            Node stage = perfectDefPacked.Instantiate();
+            coreLoop.AddChild(stage);
+            try
+            {
+                var hud = stage.GetNodeOrNull<CombatHud>("HUDLayer/HUD");
+                const string expectedCopy = "捕捉前摇信号完成完美格挡与完美闪避（金色可格挡，猩红须闪避）";
+                if (hud is null || hud.ArenaMessage != expectedCopy)
+                    failures.Add($"PerfectDefense tutorial copy mismatch: '{hud?.ArenaMessage ?? "null"}'");
+            }
+            finally
+            {
+                coreLoop.RemoveChild(stage);
+                stage.Free();
+            }
+        }
+
+        // 2. TutorialStage and FormalStage wire F3 logs (CombatFeedback/StateChanged) & TimeResourceRefund + EnemyDisplayName.
+        foreach ((string path, string expectedEnemyName) in new[]
+        {
+            ("res://Scenes/Tutorial/Combat.tscn", "遗迹守卫 · 演练靶标"),
+            ("res://Scenes/FormalEncounter.tscn", "遗迹守卫 · 前哨")
+        })
+        {
+            var packed = GD.Load<PackedScene>(path);
+            if (packed is null)
+            {
+                failures.Add($"failed to load {path} for stage wiring check");
+                continue;
+            }
+
+            Node stage = packed.Instantiate();
+            coreLoop.AddChild(stage);
+            try
+            {
+                var player = stage.GetNodeOrNull<PlayerController>("Player");
+                var timeSlow = stage.GetNodeOrNull<TimeSlowManager>("TimeSlowManager");
+                var hud = stage.GetNodeOrNull<CombatHud>("HUDLayer/HUD");
+                if (player is null || timeSlow is null || hud is null)
+                {
+                    failures.Add($"{path} missing Player/TimeSlowManager/HUD for stage wiring check");
+                    continue;
+                }
+
+                if (hud.EnemyDisplayName != expectedEnemyName)
+                    failures.Add($"{path} EnemyDisplayName expected '{expectedEnemyName}', got '{hud.EnemyDisplayName}'");
+
+                timeSlow.Reset();
+                if (hud.LastTimeLine != "time resource reset")
+                    failures.Add($"{path} TimeSlow.StateChanged did not update HUD.LastTimeLine ('{hud.LastTimeLine}')");
+
+                timeSlow.AddResource(-30f);
+                float resourceBefore = timeSlow.Resource;
+                player.Windows.PerfectDodgeSeconds = 0.5f;
+                SendAction("dodge", true);
+                player._Process(0.016);
+                player._PhysicsProcess(0.016);
+                player.TryReceiveEnemyAttack(30f, BossAttackKind.BreakGrab, out AttackResolution resolution);
+                SendAction("dodge", false);
+
+                if (resolution.Result != DefenseResult.PerfectDodged ||
+                    timeSlow.Resource <= resourceBefore ||
+                    !hud.LastCombatLine.Contains("PERFECT DODGE", StringComparison.Ordinal))
+                {
+                    failures.Add($"{path} stage wiring mismatch: result={resolution.Result} resource={resourceBefore:0}->{timeSlow.Resource:0} combat='{hud.LastCombatLine}'");
+                }
+            }
+            finally
+            {
+                SendAction("dodge", false);
+                coreLoop.RemoveChild(stage);
+                stage.Free();
+            }
+        }
+
+        prevCam?.MakeCurrent();
     }
 }
