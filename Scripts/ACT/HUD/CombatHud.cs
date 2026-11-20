@@ -1,6 +1,7 @@
 using Godot;
 using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.Player;
+using ACTSpike.ACT.Visual;
 
 namespace ACTSpike.ACT.HUD;
 
@@ -33,7 +34,7 @@ public partial class CombatHud : Control
 
     public override void _Draw()
     {
-        var font = ThemeDB.FallbackFont;
+        var font = UiFonts.Default;
         DrawString(font, new Vector2(32, 40), "ACT CORE LOOP | placeholder arena", HorizontalAlignment.Left, -1, 24, Colors.White);
         DrawString(font, new Vector2(32, 68),
             "A/D move  Space jump  J/LMB attack  Shift dodge  Ctrl block(hold)  Q time slow(hold)  K skill  R reset",
@@ -77,7 +78,7 @@ public partial class CombatHud : Control
     private void Bar(string label, float fraction, Color color, float y)
     {
         fraction = Mathf.Clamp(fraction, 0f, 1f);
-        DrawString(ThemeDB.FallbackFont, new Vector2(BarX, y - 4), label, HorizontalAlignment.Left, -1, 13, Colors.LightGray);
+        DrawString(UiFonts.Default, new Vector2(BarX, y - 4), label, HorizontalAlignment.Left, -1, 13, Colors.LightGray);
         DrawRect(new Rect2(BarX, y, BarW, BarH), new Color(1, 1, 1, 0.12f));
         DrawRect(new Rect2(BarX, y, BarW * fraction, BarH), color);
     }

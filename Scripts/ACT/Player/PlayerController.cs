@@ -42,6 +42,12 @@ public partial class PlayerController : CharacterBody2D
     public event Action<string>? CombatFeedback;
     /// <summary>Perfect dodge refunds time-slow resource; arena wires this to the manager.</summary>
     public event Action<float>? TimeResourceRefund;
+    /// <summary>Read-only presentation cues for visual/audio layers (never mutate combat state).</summary>
+    public event Action<PlayerAttackCue>? AttackStarted;
+    public event Action<PlayerHitCue>? AttackLanded;
+    public event Action<PlayerDodgeCue>? DodgeStarted;
+    public event Action<PlayerDefenseCue>? DefenseResolved;
+    public event Action<Vector2>? Landed;
 
     private Area2D _attackHitbox = null!;
     private Node2D _skillAimIndicator = null!;
@@ -63,6 +69,7 @@ public partial class PlayerController : CharacterBody2D
     private float _invulnerableUntil = -10f;
     private ulong _lastReportedEventMsec;
     private bool _blockWasHeld;
+    private bool _wasOnFloor = true;
 
     public override void _Ready()
     {
@@ -227,6 +234,11 @@ public partial class PlayerController : CharacterBody2D
         _attackHitbox.Position = new Vector2(Facing * 55f, 0);
         _attackHitbox.Monitoring = true;
         SetState(PlayerState.Attack, "attack");
+        AttackStarted?.Invoke(new PlayerAttackCue(
+            IsSkill: false,
+            Origin: GlobalPosition,
+            Direction: new Vector2(Facing, 0f),
+            DurationSeconds: Windows.AttackActiveSeconds));
     }
 
     private void BeginDodge(float now)
@@ -244,6 +256,11 @@ public partial class PlayerController : CharacterBody2D
         _dodgeDirection = dir;
         Velocity = new Vector2(dir * DodgeSpeed, 0f);
         SetState(PlayerState.Dodge, "dodge");
+        DodgeStarted?.Invoke(new PlayerDodgeCue(
+            Origin: GlobalPosition,
+            Direction: dir,
+            StartedInAir: _dodgeStartedInAir,
+            DurationSeconds: Windows.DodgeSeconds));
     }
 
     private void BeginSkill(float now)
@@ -263,6 +280,11 @@ public partial class PlayerController : CharacterBody2D
         _attackHitbox.Position = Vector2.Zero;
         _attackHitbox.Monitoring = true;
         SetState(PlayerState.Skill, $"skill dash ({dir.X:0.00},{dir.Y:0.00})");
+        AttackStarted?.Invoke(new PlayerAttackCue(
+            IsSkill: true,
+            Origin: GlobalPosition,
+            Direction: dir,
+            DurationSeconds: Windows.SkillSeconds));
     }
 
     private void UpdateSkillAimIndicator()
@@ -314,6 +336,10 @@ public partial class PlayerController : CharacterBody2D
                 break;
         }
         MoveAndSlide();
+        bool onFloor = IsOnFloor();
+        if (!_wasOnFloor && onFloor)
+            Landed?.Invoke(GlobalPosition);
+        _wasOnFloor = onFloor;
     }
 
     private void TickTimers(float now, float dt)
@@ -336,8 +362,10 @@ public partial class PlayerController : CharacterBody2D
             if (area.GetParent() is not EnemyController enemy || _swingHit.Contains(enemy)) continue;
             _swingHit.Add(enemy);
             float dmg = State == PlayerState.Skill ? SkillDamage : AttackDamage;
+            bool isSkill = State == PlayerState.Skill;
             enemy.TakeDamage(dmg);
-            EmitFeedback($"{(State == PlayerState.Skill ? "Skill" : "Attack")} hit enemy (-{dmg:0})");
+            AttackLanded?.Invoke(new PlayerHitCue(isSkill, dmg, enemy.GlobalPosition));
+            EmitFeedback($"{(isSkill ? "Skill" : "Attack")} hit enemy (-{dmg:0})");
         }
     }
 
@@ -363,12 +391,13 @@ public partial class PlayerController : CharacterBody2D
     {
         var snapshot = BuildDefenseSnapshot();
         resolution = CombatResolver.Resolve(snapshot, incomingDamage, Windows, TimeSlow, attackKind);
-        ApplyResolution(incomingDamage, resolution);
+        ApplyResolution(incomingDamage, attackKind, resolution);
         return resolution.Result != DefenseResult.Hit; // false = clean hit landed
     }
 
-    private void ApplyResolution(float incomingDamage, in AttackResolution resolution)
+    private void ApplyResolution(float incomingDamage, BossAttackKind attackKind, in AttackResolution resolution)
     {
+        bool guardBroken = false;
         switch (resolution.Result)
         {
             case DefenseResult.PerfectDodged:
@@ -389,16 +418,29 @@ public partial class PlayerController : CharacterBody2D
                 Hp = Mathf.Max(0, Hp - resolution.DamageToHp);
                 if (Guard <= 0)
                 {
+                    guardBroken = true;
                     EnterHitstun("GUARD BREAK");
-                    return;
                 }
-                EmitFeedback($"blocked (chip -{resolution.DamageToHp:0})");
+                else
+                {
+                    EmitFeedback($"blocked (chip -{resolution.DamageToHp:0})");
+                }
                 break;
             default:
                 Hp = Mathf.Max(0, Hp - resolution.DamageToHp);
                 EnterHitstun($"hit -{resolution.DamageToHp:0}");
                 break;
         }
+
+        DefenseResolved?.Invoke(new PlayerDefenseCue(
+            Result: resolution.Result,
+            AttackKind: attackKind,
+            IncomingDamage: incomingDamage,
+            DamageToHp: resolution.DamageToHp,
+            DamageToGuard: resolution.DamageToGuard,
+            GuardBroken: guardBroken,
+            IsDown: IsDown,
+            Position: GlobalPosition));
     }
 
     private void EnterHitstun(string reason)
@@ -421,6 +463,7 @@ public partial class PlayerController : CharacterBody2D
         IsDown = false;
         _attackHitbox.Monitoring = false;
         _invulnerableUntil = -10f;
+        _wasOnFloor = true;
         SetState(PlayerState.Idle, "round reset");
     }
 

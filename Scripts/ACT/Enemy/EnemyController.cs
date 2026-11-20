@@ -1,3 +1,4 @@
+using System;
 using Godot;
 using ACTSpike.ACT.Combat;
 using ACTSpike.ACT.Config;
@@ -44,12 +45,22 @@ public partial class EnemyController : CharacterBody2D
     public BossAttackKind CurrentAttackKind { get; private set; } = BossAttackKind.Normal;
     public BossAttackDefinition CurrentAttack => DefinitionFor(CurrentAttackKind);
     public bool IsDefeated => State is EnemyState.Dead or EnemyState.Victory;
+    /// <summary>Normalized 0..1 telegraph progress computed from real timestamps.</summary>
+    public float TelegraphProgress => State == EnemyState.Telegraph
+        ? Mathf.Clamp((Now - _telegraphStartedAt) / Mathf.Max(0.001f, CurrentAttack.TelegraphSeconds), 0f, 1f)
+        : 0f;
+
+    /// <summary>Read-only presentation cues for visual/audio layers (never mutate combat state).</summary>
+    public event Action<BossTelegraphCue>? TelegraphStarted;
+    public event Action<BossStrikeCue>? StrikeActivated;
+    public event Action<EnemyDamagedCue>? Damaged;
 
     public virtual bool IsInvulnerable => false;
     public virtual bool TryDefend(AttackResolution incoming) => false;
 
     private PlayerController _player = null!;
     private float _stateEndsAt;
+    private float _telegraphStartedAt;
     private float _nextAttackAllowedAt;
     private float _telegraphFlash;
     private float _attackFlashUntil;
@@ -172,8 +183,11 @@ public partial class EnemyController : CharacterBody2D
         _attackCycle++;
         _telegraphFlash = 0f;
         _strikeResolved = false;
-        _stateEndsAt = Now + CurrentAttack.TelegraphSeconds;
+        float now = Now;
+        _telegraphStartedAt = now;
+        _stateEndsAt = now + CurrentAttack.TelegraphSeconds;
         SetState(EnemyState.Telegraph, $"{CurrentAttack.Name} telegraph: {CurrentAttack.ResponseHint}");
+        TelegraphStarted?.Invoke(new BossTelegraphCue(CurrentAttack, GlobalPosition, now));
         GD.Print($"[Enemy] telegraph {CurrentAttack.Name} | response {CurrentAttack.ResponseHint} | " +
                  $"telegraph {CurrentAttack.TelegraphSeconds:0.00}s active {CurrentAttack.ActiveSeconds:0.00}s " +
                  $"recovery {CurrentAttack.RecoverySeconds:0.00}s damage {CurrentAttack.Damage:0}");
@@ -185,6 +199,7 @@ public partial class EnemyController : CharacterBody2D
         _attackFlashUntil = Now + CurrentAttack.ActiveSeconds;
         _stateEndsAt = Now + CurrentAttack.ActiveSeconds;
         SetState(EnemyState.Strike, $"{CurrentAttack.Name} active");
+        StrikeActivated?.Invoke(new BossStrikeCue(CurrentAttack, GlobalPosition));
         QueueRedraw();
     }
 
@@ -233,9 +248,11 @@ public partial class EnemyController : CharacterBody2D
             Hp = 0;
             _stateEndsAt = Now + Windows.VictoryDelaySeconds;
             SetState(EnemyState.Dead, "destroyed");
+            Damaged?.Invoke(new EnemyDamagedCue(damage, Hp, MaxHp, Defeated: true, GlobalPosition));
             return;
         }
         EnterHitstun($"took {damage:0} damage");
+        Damaged?.Invoke(new EnemyDamagedCue(damage, Hp, MaxHp, Defeated: false, GlobalPosition));
     }
 
     private void EnterHitstun(string reason)
