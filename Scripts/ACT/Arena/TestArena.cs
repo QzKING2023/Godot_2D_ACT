@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Godot;
+using ACTSpike.ACT.Audio;
 using ACTSpike.ACT.Combat;
 using ACTSpike.ACT.Config;
 using ACTSpike.ACT.Core;
@@ -60,6 +61,7 @@ public partial class TestArena : Node2D
 
         BuildHud();
         WireFeedback();
+        CombatAudioController.Attach(this, _player, _enemy, _timeSlow);
         LogInputAudit();
 
         if (OS.GetEnvironment("ACT_SMOKE") == "1")

@@ -1,4 +1,5 @@
 using Godot;
+using ACTSpike.ACT.Audio;
 using ACTSpike.ACT.Combat;
 using ACTSpike.ACT.Config;
 using ACTSpike.ACT.Core;
@@ -64,6 +65,7 @@ public partial class TutorialStage : Node2D
         var layer = new CanvasLayer { Name = "HUDLayer" };
         layer.AddChild(_hud);
         AddChild(layer);
+        CombatAudioController.Attach(this, _player, _enemy, _timeSlow);
         _player.CombatFeedback += OnCombatFeedback;
         _hud.ArenaMessage = GoalText();
     }
