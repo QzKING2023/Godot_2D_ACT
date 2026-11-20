@@ -6,6 +6,7 @@ using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.HUD;
 using ACTSpike.ACT.Input;
 using ACTSpike.ACT.Player;
+using ACTSpike.ACT.Visual;
 
 namespace ACTSpike.ACT.Arena;
 
@@ -20,6 +21,7 @@ public partial class TutorialStage : Node2D
     private PlayerController _player = null!;
     private TimeSlowManager _timeSlow = null!;
     private CombatHud _hud = null!;
+    private RuinEnvironmentLayer _environment = null!;
     private EnemyController? _enemy;
     private float _startX;
     private int _count;
@@ -35,12 +37,15 @@ public partial class TutorialStage : Node2D
 
     public override void _Ready()
     {
-        AddChild(new StaticBody2D { Name = "Floor" });
-        var floor = GetNode<StaticBody2D>("Floor");
-        floor.CollisionLayer = 2;
-        floor.AddChild(new CollisionShape2D { Shape = new RectangleShape2D { Size = new Vector2(1280, 160) }, Position = new Vector2(640, FloorY + 80) });
-        AddBoundary(floor, new Vector2(20, 360));
-        AddBoundary(floor, new Vector2(1260, 360));
+        _environment = new RuinEnvironmentLayer
+        {
+            Name = "RuinEnvironment",
+            Theme = RuinStageTheme.Tutorial
+        };
+        AddChild(_environment);
+        _environment.AddFacetedStaticBody(this, new Rect2(0f, FloorY, 1280f, 160f));
+        _environment.AddFacetedStaticBody(this, new Rect2(0f, 0f, 40f, 720f), drawLitTopEdge: false);
+        _environment.AddFacetedStaticBody(this, new Rect2(1240f, 0f, 40f, 720f), drawLitTopEdge: false);
 
         _timeSlow = new TimeSlowManager { Name = "TimeSlowManager", Config = new TimeSlowConfig() };
         AddChild(_timeSlow);
@@ -60,6 +65,7 @@ public partial class TutorialStage : Node2D
 
         var camera = new Camera2D { Position = new Vector2(380, -80), LimitLeft = 0, LimitTop = 0, LimitRight = 1280, LimitBottom = 720 };
         _player.AddChild(camera);
+        _environment.Camera = camera;
         _hud = new CombatHud { Name = "HUD", Size = new Vector2(1280, 720), Player = _player, Enemy = _enemy, TimeSlow = _timeSlow };
         var layer = new CanvasLayer { Name = "HUDLayer" };
         layer.AddChild(_hud);
@@ -134,14 +140,5 @@ public partial class TutorialStage : Node2D
             session.SavePlayerHp(_player.Hp);
         _hud.ArenaMessage = "目标完成，正在进入下一场景";
         GetTree().CreateTimer(0.35).Timeout += () => GetTree().ChangeSceneToFile(NextScene);
-    }
-
-    private static void AddBoundary(StaticBody2D floor, Vector2 position)
-    {
-        floor.AddChild(new CollisionShape2D
-        {
-            Shape = new RectangleShape2D { Size = new Vector2(40, 720) },
-            Position = position
-        });
     }
 }

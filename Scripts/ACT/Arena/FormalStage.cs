@@ -6,11 +6,16 @@ using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.HUD;
 using ACTSpike.ACT.Input;
 using ACTSpike.ACT.Player;
+using ACTSpike.ACT.Visual;
 
 namespace ACTSpike.ACT.Arena;
 
 public partial class FormalStage : Node2D
 {
+    private const float FloorY = 560f;
+    private const float ExitGateX = 1050f;
+    private const string ExitGateId = "Exit";
+
     [Export] public bool HasEnemy { get; set; }
     [Export] public string NextScene { get; set; } = "res://Scenes/CoreLoop.tscn";
 
@@ -18,15 +23,22 @@ public partial class FormalStage : Node2D
     private EnemyController? _enemy;
     private CombatHud _hud = null!;
     private TimeSlowManager _timeSlow = null!;
+    private RuinEnvironmentLayer _environment = null!;
     private bool _transitioning;
 
     public override void _Ready()
     {
-        var floor = new StaticBody2D { Name = "Floor", CollisionLayer = 2 };
-        floor.AddChild(new CollisionShape2D { Shape = new RectangleShape2D { Size = new Vector2(1280, 160) }, Position = new Vector2(640, 640) });
-        AddChild(floor);
-        AddBoundary(floor, new Vector2(20, 360));
-        AddBoundary(floor, new Vector2(1260, 360));
+        _environment = new RuinEnvironmentLayer
+        {
+            Name = "RuinEnvironment",
+            Theme = HasEnemy ? RuinStageTheme.FormalEncounter : RuinStageTheme.FormalRoute
+        };
+        AddChild(_environment);
+        _environment.AddFacetedStaticBody(this, new Rect2(0f, FloorY, 1280f, 160f));
+        _environment.AddFacetedStaticBody(this, new Rect2(0f, 0f, 40f, 720f), drawLitTopEdge: false);
+        _environment.AddFacetedStaticBody(this, new Rect2(1240f, 0f, 40f, 720f), drawLitTopEdge: false);
+        _environment.AddGate(ExitGateId, new Vector2(ExitGateX, FloorY),
+            HasEnemy ? RuinGateState.Locked : RuinGateState.Unlocked);
 
         _timeSlow = new TimeSlowManager { Name = "TimeSlowManager", Config = new TimeSlowConfig() };
         AddChild(_timeSlow);
@@ -44,6 +56,7 @@ public partial class FormalStage : Node2D
 
         var camera = new Camera2D { Position = new Vector2(380, -80), LimitLeft = 0, LimitTop = 0, LimitRight = 1280, LimitBottom = 720 };
         _player.AddChild(camera);
+        _environment.Camera = camera;
         _hud = new CombatHud { Name = "HUD", Size = new Vector2(1280, 720), Player = _player, Enemy = _enemy, TimeSlow = _timeSlow };
         var layer = new CanvasLayer { Name = "HUDLayer" };
         layer.AddChild(_hud);
@@ -59,19 +72,15 @@ public partial class FormalStage : Node2D
             GetTree().ReloadCurrentScene();
             return;
         }
-        if (_transitioning || _player.IsDown) return;
         bool ready = !HasEnemy || _enemy is not null && _enemy.IsDefeated;
-        if (ready && _player.GlobalPosition.X >= 1050f)
+        _environment.SetGateState(ExitGateId, ready ? RuinGateState.Unlocked : RuinGateState.Locked);
+        if (_transitioning || _player.IsDown) return;
+        if (ready && _player.GlobalPosition.X >= ExitGateX)
         {
             _transitioning = true;
             GetNodeOrNull<RunSession>("/root/RunSession")?.SavePlayerHp(_player.Hp);
             _hud.ArenaMessage = "出口已到达，正在进入下一场景";
             GetTree().CreateTimer(0.35).Timeout += () => GetTree().ChangeSceneToFile(NextScene);
         }
-    }
-
-    private static void AddBoundary(StaticBody2D floor, Vector2 position)
-    {
-        floor.AddChild(new CollisionShape2D { Shape = new RectangleShape2D { Size = new Vector2(40, 720) }, Position = position });
     }
 }

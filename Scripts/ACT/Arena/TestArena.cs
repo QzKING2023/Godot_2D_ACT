@@ -7,13 +7,13 @@ using ACTSpike.ACT.Enemy;
 using ACTSpike.ACT.HUD;
 using ACTSpike.ACT.Input;
 using ACTSpike.ACT.Player;
+using ACTSpike.ACT.Visual;
 
 namespace ACTSpike.ACT.Arena;
 
 /// <summary>
-/// Builds the placeholder test arena in code and wires the modules together:
-/// input audit, player, enemy, time-slow manager, HUD, reset. All geometry is
-/// programmatic placeholder; nothing here depends on art assets.
+/// Builds the core boss arena in code and wires the modules together:
+/// procedural ruin environment, input audit, player, enemy, time-slow manager, HUD, reset.
 /// </summary>
 public partial class TestArena : Node2D
 {
@@ -21,6 +21,8 @@ public partial class TestArena : Node2D
     private const float ArenaWidth = 2400f;
     private const float BossBoundaryX = 1640f;
     private const float VictoryBoundaryX = 2260f;
+    private const string BossGateId = "BossBoundary";
+    private const string VictoryGateId = "VictoryExit";
     private static readonly Vector2 PlayerSpawn = new(260, FloorTopY - 23);
     private static readonly Vector2 EnemySpawn = new(1840, FloorTopY - 50);
 
@@ -30,6 +32,7 @@ public partial class TestArena : Node2D
     private PlayerController _player = null!;
     private EnemyController _enemy = null!;
     private CombatHud _hud = null!;
+    private RuinEnvironmentLayer _environment = null!;
     private bool _bossArenaEntered;
     private bool _transitioning;
     private bool _victory;
@@ -57,6 +60,7 @@ public partial class TestArena : Node2D
 
         var camera = new Camera2D { Name = "RouteCamera", Position = new Vector2(0, -80), LimitLeft = 0, LimitTop = 0, LimitRight = (int)ArenaWidth, LimitBottom = 720, PositionSmoothingEnabled = true, PositionSmoothingSpeed = 8f };
         _player.AddChild(camera);
+        _environment.Camera = camera;
 
         BuildHud();
         WireFeedback();
@@ -89,6 +93,7 @@ public partial class TestArena : Node2D
         if (!_bossArenaEntered && _player.GlobalPosition.X >= BossBoundaryX)
         {
             _bossArenaEntered = true;
+            _environment.SetGateState(BossGateId, RuinGateState.Locked);
             _hud.ArenaMessage = "BOSS ARENA - defeat the enemy, then exit right";
             _hud.ReportCombat("boss arena entered automatically");
             GD.Print("[Arena] boss boundary crossed");
@@ -97,6 +102,8 @@ public partial class TestArena : Node2D
         if (_bossArenaEntered && !_bossDefeatReported && _enemy.IsDefeated)
         {
             _bossDefeatReported = true;
+            _environment.SetGateState(BossGateId, RuinGateState.Unlocked);
+            _environment.SetGateState(VictoryGateId, RuinGateState.Unlocked);
             _hud.ArenaMessage = "BOSS DEFEATED - reach EXIT";
             _hud.ReportCombat("victory condition met: boss defeated");
             GD.Print("[Arena] boss defeated; exit is now active");
@@ -120,46 +127,23 @@ public partial class TestArena : Node2D
 
     private void BuildRoomGeometry()
     {
-        AddStaticRect(new Rect2(0, FloorTopY, ArenaWidth, 160), new Color("1b2b3a"));      // floor
-        AddStaticRect(new Rect2(0, 0, 40, 720), new Color("16202c"));                // left wall
-        AddStaticRect(new Rect2(ArenaWidth - 40, 0, 40, 720), new Color("16202c"));  // right wall
+        _environment = new RuinEnvironmentLayer
+        {
+            Name = "RuinEnvironment",
+            Theme = RuinStageTheme.BossArena
+        };
+        AddChild(_environment);
+
+        _environment.AddFacetedStaticBody(this, new Rect2(0f, FloorTopY, ArenaWidth, 160f));
+        _environment.AddFacetedStaticBody(this, new Rect2(0f, 0f, 40f, 720f), drawLitTopEdge: false);
+        _environment.AddFacetedStaticBody(this, new Rect2(ArenaWidth - 40f, 0f, 40f, 720f), drawLitTopEdge: false);
 
         // Short, collision-safe route: a low step, an automatic boss boundary, and the boss apron.
-        AddStaticRect(new Rect2(500, 500, 180, 60), new Color("29445a"));
-        AddStaticRect(new Rect2(1380, 520, 220, 40), new Color("29445a"));
-        AddMarker(new Vector2(BossBoundaryX - 80, FloorTopY - 72), "BOSS BOUNDARY", new Color("ffd166"));
-        AddMarker(new Vector2(VictoryBoundaryX - 55, FloorTopY - 72), "EXIT", new Color("80ed99"));
-        AddMarker(new Vector2(100, FloorTopY - 72), "START", new Color("a8dadc"));
-    }
+        _environment.AddFacetedStaticBody(this, new Rect2(500f, 500f, 180f, 60f));
+        _environment.AddFacetedStaticBody(this, new Rect2(1380f, 520f, 220f, 40f));
 
-    private StaticBody2D AddStaticRect(Rect2 rect, Color color)
-    {
-        var body = new StaticBody2D
-        {
-            CollisionLayer = 2,
-            CollisionMask = 0,
-            Position = rect.GetCenter()
-        };
-        body.AddChild(new CollisionShape2D
-        {
-            Shape = new RectangleShape2D { Size = rect.Size }
-        });
-        var visual = new ColorRect
-        {
-            Size = rect.Size,
-            Position = rect.Position - body.Position,
-            Color = color,
-            Name = "Visual"
-        };
-        body.AddChild(visual);
-        AddChild(body);
-        return body;
-    }
-
-    private void AddMarker(Vector2 position, string text, Color color)
-    {
-        var label = new Label { Text = text, Position = position, Modulate = color, ZIndex = 3 };
-        AddChild(label);
+        _environment.AddGate(BossGateId, new Vector2(BossBoundaryX, FloorTopY), RuinGateState.Active);
+        _environment.AddGate(VictoryGateId, new Vector2(VictoryBoundaryX, FloorTopY), RuinGateState.Locked);
     }
 
     private void BuildHud()
