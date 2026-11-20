@@ -25,6 +25,7 @@ public partial class FormalStage : Node2D
     private CombatHud _hud = null!;
     private TimeSlowManager _timeSlow = null!;
     private RuinEnvironmentLayer _environment = null!;
+    private Camera2D _camera = null!;
     private bool _transitioning;
 
     public override void _Ready()
@@ -55,9 +56,11 @@ public partial class FormalStage : Node2D
             _enemy.Bind(_player, _player.Windows);
         }
 
-        var camera = new Camera2D { Position = new Vector2(380, -80), LimitLeft = 0, LimitTop = 0, LimitRight = 1280, LimitBottom = 720 };
-        _player.AddChild(camera);
-        _environment.Camera = camera;
+        _camera = new Camera2D { Position = new Vector2(380, -80), LimitLeft = 0, LimitTop = 0, LimitRight = 1280, LimitBottom = 720 };
+        _player.AddChild(_camera);
+        _environment.Camera = _camera;
+        _player.Visual.BindTimeSlow(_timeSlow);
+        CombatFeedbackLayer.Attach(this, _player, _enemy, _timeSlow, _camera);
         _hud = new CombatHud { Name = "HUD", Size = new Vector2(1280, 720), Player = _player, Enemy = _enemy, TimeSlow = _timeSlow };
         var layer = new CanvasLayer { Name = "HUDLayer" };
         layer.AddChild(_hud);

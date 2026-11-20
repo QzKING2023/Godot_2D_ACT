@@ -72,6 +72,7 @@ public partial class SmokeTest : Node
         CheckGeometricPaletteAndPrimitives();
         RuinStageSmoke.Check(GetParent(), Fail);
         CheckAttackContractDifferences();
+        PresentationVisualSmoke.Check(this, Player, Enemy, TimeSlow, Fail);
         ProceduralAudioSmoke.Check(GetParent());
         HudFlowSmoke.Check(GetParent(), Fail);
         GD.Print("[Smoke] running (ACT_SMOKE=1)");

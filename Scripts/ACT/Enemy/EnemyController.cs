@@ -3,6 +3,7 @@ using Godot;
 using ACTSpike.ACT.Combat;
 using ACTSpike.ACT.Config;
 using ACTSpike.ACT.Player;
+using ACTSpike.ACT.Visual;
 
 namespace ACTSpike.ACT.Enemy;
 
@@ -30,7 +31,7 @@ public readonly record struct BossAttackDefinition(
 /// <summary>
 /// Boss attack flow: Chase/Idle -> Telegraph -> Strike -> Recover.
 /// Every attack uses real-time timestamps and a configured active/recovery
-/// window. The procedural draw cues are intentionally distinct placeholders.
+/// window. Visual rendering and telegraphs are delegated to EnemyVisual.
 /// </summary>
 public partial class EnemyController : CharacterBody2D
 {
@@ -38,6 +39,7 @@ public partial class EnemyController : CharacterBody2D
     [Export] public float ChaseSpeed { get; set; } = 90f;
     [Export] public float Gravity { get; set; } = 1200f;
     public float Hp { get; private set; }
+    public EnemyVisual Visual { get; private set; } = null!;
 
     public CombatWindowConfig Windows { get; set; } = new();
     public EnemyState State { get; private set; } = EnemyState.Spawn;
@@ -62,8 +64,6 @@ public partial class EnemyController : CharacterBody2D
     private float _stateEndsAt;
     private float _telegraphStartedAt;
     private float _nextAttackAllowedAt;
-    private float _telegraphFlash;
-    private float _attackFlashUntil;
     private bool _strikeResolved;
     private int _attackCycle;
 
@@ -90,6 +90,10 @@ public partial class EnemyController : CharacterBody2D
         hurtbox.AddChild(new CollisionShape2D { Shape = new RectangleShape2D { Size = new Vector2(52, 100) } });
         hurtbox.AddToGroup("enemy_hurtbox");
         AddChild(hurtbox);
+
+        Visual = new EnemyVisual { Name = "Visual" };
+        AddChild(Visual);
+        Visual.Bind(this, _player);
     }
 
     public void Bind(PlayerController player, CombatWindowConfig windows)
@@ -100,6 +104,7 @@ public partial class EnemyController : CharacterBody2D
         _attackCycle = 0;
         _nextAttackAllowedAt = Now + Windows.EnemyInitialDelaySeconds;
         _stateEndsAt = Now + Windows.BossSpawnSeconds;
+        Visual?.Bind(this, player);
         SetState(EnemyState.Spawn, "spawn");
     }
 
@@ -126,9 +131,7 @@ public partial class EnemyController : CharacterBody2D
                 if (Now >= _stateEndsAt) SetState(PreviousChaseState, "recovered from hitstun");
                 break;
             case EnemyState.Telegraph:
-                _telegraphFlash = Mathf.PingPong(Now * 6f, 1f);
                 Velocity = Velocity with { X = 0 };
-                QueueRedraw();
                 if (Now >= _stateEndsAt) BeginStrike();
                 break;
             case EnemyState.Strike:
@@ -181,7 +184,6 @@ public partial class EnemyController : CharacterBody2D
     {
         CurrentAttackKind = (BossAttackKind)(_attackCycle % 3);
         _attackCycle++;
-        _telegraphFlash = 0f;
         _strikeResolved = false;
         float now = Now;
         _telegraphStartedAt = now;
@@ -195,12 +197,9 @@ public partial class EnemyController : CharacterBody2D
 
     private void BeginStrike()
     {
-        _telegraphFlash = 1f;
-        _attackFlashUntil = Now + CurrentAttack.ActiveSeconds;
         _stateEndsAt = Now + CurrentAttack.ActiveSeconds;
         SetState(EnemyState.Strike, $"{CurrentAttack.Name} active");
         StrikeActivated?.Invoke(new EnemyStrikeCue(CurrentAttack, GlobalPosition));
-        QueueRedraw();
     }
 
     private void ResolveStrike()
@@ -296,55 +295,5 @@ public partial class EnemyController : CharacterBody2D
         if (State == next) return;
         GD.Print($"[Enemy] {State} -> {next} ({reason})");
         State = next;
-        QueueRedraw();
-    }
-
-    public override void _Draw()
-    {
-        var attackColor = CurrentAttackKind switch
-        {
-            BossAttackKind.BreakGrab => new Color("ef476f"),
-            BossAttackKind.DelayedArea => new Color("9d4edd"),
-            _ => new Color("ffd166")
-        };
-        var body = State switch
-        {
-            EnemyState.Telegraph => new Color("ffd166").Lerp(attackColor, _telegraphFlash),
-            EnemyState.Strike => attackColor,
-            EnemyState.Hitstun => new Color("b5838d"),
-            EnemyState.Dead => new Color("495057"),
-            EnemyState.Victory => new Color("80ed99"),
-            _ => new Color("ee6c4d")
-        };
-        DrawRect(new Rect2(-26, -50, 52, 100), body);
-
-        if (State == EnemyState.Telegraph)
-        {
-            float pulse = 0.6f + 0.4f * _telegraphFlash;
-            switch (CurrentAttackKind)
-            {
-                case BossAttackKind.BreakGrab:
-                    DrawRect(new Rect2(-CurrentAttack.Range, -58, CurrentAttack.Range * 2f, 116),
-                        new Color(0.94f, 0.28f, 0.44f, 0.15f * pulse), true);
-                    DrawRect(new Rect2(-CurrentAttack.Range, -58, CurrentAttack.Range * 2f, 116),
-                        new Color(1f, 0.25f, 0.4f, pulse), false, 5f);
-                    break;
-                case BossAttackKind.DelayedArea:
-                    DrawCircle(Vector2.Zero, CurrentAttack.HazardRadius, new Color(0.62f, 0.3f, 0.87f, 0.13f * pulse));
-                    DrawArc(Vector2.Zero, CurrentAttack.HazardRadius, 0, Mathf.Tau, 32,
-                        new Color(0.75f, 0.45f, 1f, pulse), 5f);
-                    break;
-                default:
-                    DrawArc(Vector2.Zero, 60, -Mathf.Pi / 2 - 0.9f, -Mathf.Pi / 2 + 0.9f, 16,
-                        new Color(1, 0.85f, 0.3f, pulse), 6);
-                    break;
-            }
-        }
-        if (State == EnemyState.Strike || Now < _attackFlashUntil)
-        {
-            DrawRect(new Rect2(-34, -58, 68, 116), new Color(1f, 0.1f, 0.1f, 0.72f), false, 8f);
-            if (CurrentAttackKind == BossAttackKind.DelayedArea)
-                DrawCircle(Vector2.Zero, CurrentAttack.HazardRadius, new Color(0.7f, 0.2f, 0.9f, 0.22f));
-        }
     }
 }
