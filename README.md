@@ -63,19 +63,17 @@ Remove-Item Env:ACT_SMOKE
 
 ## Windows 独立导出
 
-仓库已包含 `export_presets.cfg`（预设 `"Windows Desktop"`，`x86_64`，输出至 `build/windows/ACT_Spike.exe`）。
+仓库已包含 `export_presets.cfg`（预设 `"Windows Desktop"`，`x86_64`，GUI 预设默认输出至 `.builds/ACT_Spike.exe`；`.builds/` 与 `build/` 均已加入 `.gitignore`）。
 
-1. **安装匹配的导出模板**：确保安装与引擎版本 **`4.5.1.stable.mono.official.f62fdbde1`** 完全匹配的 Godot 4.5.1 Mono 导出模板（`.tpz` 可在 Godot 编辑器内通过「编辑器 → 管理导出模板」安装，或解压至 `%APPDATA%\Godot\export_templates\4.5.1.stable.mono\`）：
-   - `%APPDATA%\Godot\export_templates\4.5.1.stable.mono\windows_debug_x86_64.exe`
-   - `%APPDATA%\Godot\export_templates\4.5.1.stable.mono\windows_release_x86_64.exe`
-2. **执行导出**：
+1. **安装匹配的导出模板**：确保安装与引擎版本 **`4.5.1.stable.mono.official.f62fdbde1`** 完全匹配的 Godot 4.5.1 Mono 导出模板（`.tpz` 可在 Godot 编辑器内通过「编辑器 → 管理导出模板 → 从文件安装」导入，或解压至 `%APPDATA%\Godot\export_templates\4.5.1.stable.mono\`）。
+2. **执行导出**（可导出至预设默认路径或显式指定目录，如 `build/windows/ACT_Spike.exe`）：
 
 ```powershell
 New-Item -ItemType Directory -Force build\windows | Out-Null
 & 'D:\Godot\Godot_v4.5.1-stable_mono_win64_console.exe' --headless --path . --export-release "Windows Desktop" "build/windows/ACT_Spike.exe"
 ```
 
-3. **启动验证**：将 `build/windows/` 整个输出目录（含 `ACT_Spike.exe`、`.pck` 与随附 `.NET` 运行库目录）复制到干净目录后双击 `ACT_Spike.exe` 运行。
+3. **启动验证**：将输出目录（含 `ACT_Spike.exe`、`.pck` 与随附 `data_ACT Spike_windows_x86_64/` 目录）复制到干净目录后双击 `ACT_Spike.exe` 运行（已验收发布记录见 [`Docs/RELEASE_QA_RECORD.md`](Docs/RELEASE_QA_RECORD.md)）。
 
 ## 已知限制与手工验收边界
 

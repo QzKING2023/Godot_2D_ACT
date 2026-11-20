@@ -7,6 +7,7 @@
 # build output
 *.user
 build/
+.builds/
 
 # Local GPT Image concept references; keep outside runtime assets and untracked
 ConceptArt/

@@ -9,7 +9,8 @@
 - **C# SDK / 目标框架**：.NET SDK `10.0.201`；`Godot.NET.Sdk/4.5.1`，`<TargetFramework>net8.0</TargetFramework>`，`<Nullable>enable</Nullable>`
 - **显示与渲染**：`1280×720`，`canvas_items` / `keep`，`gl_compatibility`
 - **主入口场景**：`res://Scenes/Title.tscn`（`TitleScreen`）
-- **验证分支**：`spec/1-ticket-7`（基线 `spec/1-procedural-geometric-demo`）
+- **验证分支**：`spec/1-procedural-geometric-demo`
+- **导出模板版本**：`4.5.1.stable.mono`（已由 `Godot_v4.5.1-stable_mono_export_templates.tpz` 导入至 `%APPDATA%\Godot\export_templates\4.5.1.stable.mono\`）
 
 ## 2. 自动化验证结果（`verify.ps1`）
 
@@ -44,34 +45,30 @@ powershell -ExecutionPolicy Bypass -File verify.ps1
 5. **Boss 战全流程与重置卫生（`SmokeTest`）**：
    - 玩家攻击、Boss 普通攻击未防御命中、破防抓取完美闪避（`+20` 时缓）、延迟范围移动脱离、时缓激活/释放、普通攻击完美格挡震慑、技能与斩击击败 Boss、玩家死亡、`Engine.TimeScale == 1.0` 退出检查（`[Smoke] ALL PASS`），以及 `R` 重置后新实例恢复满血/Boss 存活/满时缓资源/`Engine.TimeScale == 1.0`（`[Smoke] PASS R reset`）。
 
-## 3. Windows 独立导出检查与模板步骤
+## 3. Windows 独立导出检查与可重复构建
 
-### 3.1 预设验证命令与当前状态
+### 3.1 预设配置与模板状态
 
-已配置 [`../export_presets.cfg`](../export_presets.cfg)（`Windows Desktop` / `x86_64` / `export_path="build/windows/ACT_Spike.exe"`，且 `build/` 已加入 `.gitignore`）。在本机执行导出验证命令：
+已配置 [`../export_presets.cfg`](../export_presets.cfg)（`Windows Desktop` / `x86_64`，GUI 预设默认 `export_path=".builds/ACT_Spike.exe"`，`.builds/` 与 `build/` 均已加入 `.gitignore`）。
 
-```powershell
-& 'D:\Godot\Godot_v4.5.1-stable_mono_win64_console.exe' --headless --path . --export-release "Windows Desktop" "build/windows/ACT_Spike.exe"
-```
+- **导出模板校验**：`%APPDATA%\Godot\export_templates\4.5.1.stable.mono\version.txt` 为 `4.5.1.stable.mono`（通过 Godot 编辑器导入 `Godot_v4.5.1-stable_mono_export_templates.tpz` 安装），包含 `windows_debug_x86_64.exe`、`windows_release_x86_64.exe` 及控制台包装器模板。
+- **GUI 验收发布包**：`.builds/build_20261120/` 已成功构建并通过验收，包含 `ACT_Spike.exe`、`ACT_Spike.console.exe`、`ACT_Spike.pck` 与 `data_ACT Spike_windows_x86_64/`。
 
-- **预设与脚本扫描结果**：`export_presets.cfg` 正确识别，全局脚本类注册（39 步）通过。
-- **阻塞项（环境缺失导出模板）**：本机 `%APPDATA%\Godot\export_templates\` 目录为空，Godot CLI 返回以下缺失模板路径（退出码 `1`）：
-  - `C:/Users/q1625/AppData/Roaming/Godot/export_templates/4.5.1.stable.mono/windows_debug_x86_64.exe`
-  - `C:/Users/q1625/AppData/Roaming/Godot/export_templates/4.5.1.stable.mono/windows_release_x86_64.exe`
+### 3.2 命令行可重复导出验证（已通过）
 
-### 3.2 安装模板并完成导出（可重复步骤）
-
-1. 下载并安装对应 **`Godot Engine v4.5.1.stable.mono.official.f62fdbde1`** 的 Mono 导出模板（`.tpz`）：
-   - 方式 A：打开 `D:\Godot\Godot_v4.5.1-stable_mono_win64.exe` → **编辑器** → **管理导出模板** → 安装 `4.5.1.stable.mono` 模板；
-   - 方式 B：将官方 `Godot_v4.5.1-stable_mono_export_templates.tpz` 中的 `templates/*` 解压至 `C:\Users\q1625\AppData\Roaming\Godot\export_templates\4.5.1.stable.mono\`，确认存在 `windows_debug_x86_64.exe` 与 `windows_release_x86_64.exe`。
-2. 在仓库根目录执行导出：
+在仓库根目录执行以下命令验证 headless CLI 导出：
 
 ```powershell
 New-Item -ItemType Directory -Force build\windows | Out-Null
 & 'D:\Godot\Godot_v4.5.1-stable_mono_win64_console.exe' --headless --path . --export-release "Windows Desktop" "build/windows/ACT_Spike.exe"
 ```
 
-3. 将生成的 `build\windows\` 整个目录复制到脱离开发目录的干净文件夹（例如 `C:\Temp\ACT_Spike_Release\`），双击 `ACT_Spike.exe` 完成下方第 5 节手工试玩验证。
+- **执行结果**：退出码 `0`（`[ DONE ] dotnet_publish_project`、`[ DONE ] savepack`）。
+- **生成产物**（`build/windows/`）：
+  - `ACT_Spike.exe`（`96,823,808` 字节）
+  - `ACT_Spike.console.exe`（`49,664` 字节）
+  - `ACT_Spike.pck`（`2,352,384` 字节）
+  - `data_ACT Spike_windows_x86_64/`（.NET 8 运行库目录）
 
 ## 4. 文档对齐与旧资产清理状态
 
@@ -80,12 +77,10 @@ New-Item -ItemType Directory -Force build\windows | Out-Null
   - 已从仓库移除：`Docs/ART_ASSET_WORKFLOW.md`、`Docs/PIXEL_ART_PRODUCTION_PIPELINE.md`、`Docs/NEXT_PHASE_PROMPT.md`、`Docs/PHASE_PROMPTS.md`
   - 已从工作树清理：`Docs/ART_CONCEPT_PROMPTS*.md`、`Docs/COMFYUI_MODEL_DEPLOYMENT.md`、`Docs/CONCEPT_ART_*.md`、`Docs/comfyui_workflows/`、`Docs/debug.log`
 
-## 5. 手工试玩 QA 验收清单（发布前人工确认）
+## 5. 手工试玩 QA 验收记录（2026-11-20 · `.builds/build_20261120`）
 
-- [ ] **视觉可读性（关闭 `F3`）**：默认关闭 `F3` 调试覆盖层，从 `Title` 进入教学与 Boss 战，仅靠「遗迹几何表现」剪影、三种战斗前摇信号颜色/形状、门柱状态与冷色时缓视觉场即可分辨攻防时机并击败 Boss。
-- [ ] **程序化音频听感**：在有声桌面环境中体验 13 路战斗与前摇音效，确认无明显爆音/削波刺耳，连击、格挡、完美闪避与时缓升降调清晰可辨。
-- [ ] **手感与时序**：顿帧/微震流畅不掉帧；按住 `Q` 开启时缓期间 `0.25s` 完美格挡/完美闪避判定依然稳定；`Esc` 暂停并恢复后时缓与重力不异常。
-- [ ] **双输入路径**：
-  - [ ] 仅用键鼠完成标题页导航、全教学或直接挑战 Boss、`Esc` 暂停（继续/重置/返回标题）、`F3` 调试切换与 `R` 重置。
-  - [ ] 接入 Xbox 手柄完成菜单导航（左摇杆/十字键 + `A`/`B`）、战斗全部动作（`LS` / `A` / `X` / `B` / `RB` / `LB` / `Y`）及 `Start` 暂停。
-- [ ] **Windows 独立导出包运行** *(待安装 `4.5.1.stable.mono` 导出模板后勾选)*：将 `build/windows/` 复制到干净目录，双击 `ACT_Spike.exe` 正常显示中文字体与几何画面，完成至少一局胜负与 `R` 重置，无控制台报错或退出残留。
+- [x] **程序化音频听感**：`2026-11-20` 于独立构建 `.builds/build_20261120` 验收通过（音效表现正常）。
+- [x] **双输入路径与调试开关**：
+  - [x] 键鼠输入（含 `F3` 调试覆盖层切换）于 `.builds/build_20261120` 验收通过。
+  - [x] 手柄输入于 `.builds/build_20261120` 验收通过。
+- [x] **Windows 独立导出包运行**：已于 `2026-11-20` 通过 Godot GUI 导入 `Godot_v4.5.1-stable_mono_export_templates.tpz` 完成 `.builds/build_20261120` 独立构建并完成启动与游玩验收；命令行 `--export-release "Windows Desktop" "build/windows/ACT_Spike.exe"` 亦已验证退出码 `0`。

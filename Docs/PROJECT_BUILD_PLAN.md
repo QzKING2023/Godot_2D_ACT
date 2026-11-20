@@ -56,5 +56,5 @@
 ## 构建、验证与 Windows 导出状态
 
 - **自动化验收**：`powershell -ExecutionPolicy Bypass -File verify.ps1`（执行 `dotnet build "ACT Spike.csproj" --no-restore -warnaserror` 与 `ACT_SMOKE=1` headless 全链路烟测，要求 `0 个警告`、`0 个错误`、`[Smoke] ALL PASS`、`[Smoke] PASS R reset` 且无 `[Smoke] FAIL`）。
-- **Windows 导出配置**：根目录已提交 `export_presets.cfg`（预设名称 `"Windows Desktop"`，架构 `x86_64`，输出 `"build/windows/ACT_Spike.exe"`，`build/` 已加入 `.gitignore`）。
-- **导出模板依赖**：需要对应 Godot `4.5.1.stable.mono` 的导出模板（`%APPDATA%\Godot\export_templates\4.5.1.stable.mono\windows_debug_x86_64.exe` 与 `windows_release_x86_64.exe`）。本机当前环境验证结果与完整导出步骤记录于 [`RELEASE_QA_RECORD.md`](RELEASE_QA_RECORD.md) 与根目录 [`../README.md`](../README.md)。
+- **Windows 导出配置**：根目录已提交 `export_presets.cfg`（预设名称 `"Windows Desktop"`，架构 `x86_64`，GUI 预设默认输出 `".builds/ACT_Spike.exe"`，命令行可通过 `--export-release` 指定如 `"build/windows/ACT_Spike.exe"`；`.builds/` 与 `build/` 均已加入 `.gitignore`）。
+- **导出模板与验收状态**：本机已安装匹配的 Godot `4.5.1.stable.mono` 导出模板（`%APPDATA%\Godot\export_templates\4.5.1.stable.mono\`），GUI 构建（`.builds/build_20261120/`）与命令行 `--export-release` 均已验证完成，详见 [`RELEASE_QA_RECORD.md`](RELEASE_QA_RECORD.md) 与根目录 [`../README.md`](../README.md)。
