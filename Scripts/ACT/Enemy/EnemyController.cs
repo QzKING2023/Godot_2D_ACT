@@ -424,7 +424,8 @@ public partial class EnemyController : CharacterBody2D
             return EnemyHitOutcome.Damaged;
         }
 
-        EnterHitstun($"took {hit.Damage:0} damage");
+        if (State != EnemyState.ShieldBroken)
+            EnterHitstun($"took {hit.Damage:0} damage");
         Damaged?.Invoke(new EnemyDamagedCue(hit.Damage, Hp, MaxHp, Defeated: false, GlobalPosition));
         return EnemyHitOutcome.Damaged;
     }

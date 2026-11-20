@@ -90,6 +90,7 @@ public partial class SmokeTest : Node
         DirectionalCombatContractSmoke.Check(GetParent(), Fail);
         EncounterAttackCoordinatorSmoke.Check(GetParent(), Fail);
         MeleeScoutSmoke.Check(GetParent(), Fail);
+        HeavyShieldSmoke.Check(GetParent(), Fail);
         GD.Print("[Smoke] running (ACT_SMOKE=1)");
     }
 
