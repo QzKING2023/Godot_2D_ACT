@@ -273,12 +273,20 @@ public static class HudFlowSmoke
 
     private static void CheckCombatHudContract(Node coreLoop, List<string> failures)
     {
+        var hudLayer = coreLoop.GetNodeOrNull<CanvasLayer>("HUDLayer");
         var hud = coreLoop.GetNodeOrNull<CombatHud>("HUDLayer/HUD");
-        if (hud is null)
+        if (hudLayer is null || hud is null)
         {
             failures.Add("CoreLoop missing HUDLayer/HUD (CombatHud)");
             return;
         }
+
+        var feedbackLayer = coreLoop.GetNodeOrNull<CombatFeedbackLayer>("CombatFeedbackLayer");
+        var pauseLayer = coreLoop.GetNodeOrNull<PauseMenuOverlay>("PauseMenuLayer");
+        if (feedbackLayer is not null && hudLayer.Layer <= feedbackLayer.TimeSlowFieldLayer.Layer)
+            failures.Add($"HUDLayer.Layer ({hudLayer.Layer}) must sit above TimeSlowFieldLayer ({feedbackLayer.TimeSlowFieldLayer.Layer})");
+        if (pauseLayer is not null && pauseLayer.Layer <= hudLayer.Layer)
+            failures.Add($"PauseMenuLayer.Layer ({pauseLayer.Layer}) must sit above HUDLayer ({hudLayer.Layer})");
 
         if (hud.ArenaMessage.Contains("Reach", StringComparison.OrdinalIgnoreCase) ||
             hud.ArenaMessage.Contains("placeholder", StringComparison.OrdinalIgnoreCase))

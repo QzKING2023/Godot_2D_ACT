@@ -71,7 +71,7 @@ public partial class TutorialStage : Node2D
         _player.Visual.BindTimeSlow(_timeSlow);
         CombatFeedbackLayer.Attach(this, _player, _enemy, _timeSlow, _camera);
         _hud = new CombatHud { Name = "HUD", Size = new Vector2(1280, 720), Player = _player, Enemy = _enemy, TimeSlow = _timeSlow };
-        var layer = new CanvasLayer { Name = "HUDLayer" };
+        var layer = new CanvasLayer { Name = "HUDLayer", Layer = 10 };
         layer.AddChild(_hud);
         AddChild(layer);
         PauseMenuOverlay.Attach(this, _timeSlow);

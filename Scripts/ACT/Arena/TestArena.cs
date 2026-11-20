@@ -154,7 +154,7 @@ public partial class TestArena : Node2D
 
     private void BuildHud()
     {
-        var layer = new CanvasLayer { Name = "HUDLayer" };
+        var layer = new CanvasLayer { Name = "HUDLayer", Layer = 10 };
         _hud = new CombatHud
         {
             Name = "HUD",
