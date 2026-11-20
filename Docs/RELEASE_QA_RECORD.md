@@ -76,9 +76,9 @@ New-Item -ItemType Directory -Force build\windows | Out-Null
 ## 4. 文档对齐与旧资产清理状态
 
 - **已更新**：`README.md`、`Docs/DEMO_EXECUTION_PLAN.md`、`Docs/PROJECT_BUILD_PLAN.md` 已全部对齐至 ADR-0001 纯 2D 程序化几何与 13 路 PCM 音效基线，清除 `320×180`、像素编辑器与生成式管线旧指引。
-- **待人工/合并端清理（受限会话权限超时未执行删除）**：以下作废旧文档仍留在工作树，建议合并时执行 `git rm` 与清理：
-  - 已跟踪旧文档：`Docs/ART_ASSET_WORKFLOW.md`、`Docs/PIXEL_ART_PRODUCTION_PIPELINE.md`、`Docs/NEXT_PHASE_PROMPT.md`、`Docs/PHASE_PROMPTS.md`
-  - 未跟踪旧提示词与工作流：`Docs/ART_CONCEPT_PROMPTS*.md`、`Docs/COMFYUI_MODEL_DEPLOYMENT.md`、`Docs/CONCEPT_ART_*.md`、`Docs/comfyui_workflows/`、`Docs/debug.log`
+- **已清理作废文件（遵循 ADR-0001）**：
+  - 已从仓库移除：`Docs/ART_ASSET_WORKFLOW.md`、`Docs/PIXEL_ART_PRODUCTION_PIPELINE.md`、`Docs/NEXT_PHASE_PROMPT.md`、`Docs/PHASE_PROMPTS.md`
+  - 已从工作树清理：`Docs/ART_CONCEPT_PROMPTS*.md`、`Docs/COMFYUI_MODEL_DEPLOYMENT.md`、`Docs/CONCEPT_ART_*.md`、`Docs/comfyui_workflows/`、`Docs/debug.log`
 
 ## 5. 手工试玩 QA 验收清单（发布前人工确认）
 
