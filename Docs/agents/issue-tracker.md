@@ -18,11 +18,11 @@
 
 - 单张子票（正文含 `## Parent` 或 `Part of #<parent>`）在通过 `verify.ps1` 与双轴 `/code-review` 并提交到本地分支后，立即执行 `gh issue close <number> --comment '...'` 关闭该票，评论中记录提交 SHA、审查结论与 `verify.ps1` 结果。
 - 校验近期提交引用的子票是否存在漏关单：运行 `powershell -ExecutionPolicy Bypass -File verify.ps1 -CheckIssues`。
-- 当前本地主开发分支为 `master`（未与远端早期 `origin/main` 合并），发起 `/code-review` 时显式指定本地基准 commit SHA，而非 `origin/main`。
+- 当前主开发与远端推送分支为 `master`（已跟踪 `origin/master`；不要推送到远端历史遗留 `origin/main`），发起 `/code-review` 时显式指定本地基准 commit SHA，而非 `origin/main`。
 
 ### Windows PowerShell 5.1 使用提示
 
-- 读取 Issue / PR 时始终附加 `--json ...`，确保非交互式管道下稳定输出。
+- 读取 Issue / PR 时始终附加 `--json ...`，确保非交互式管道下稳定输出；批量列票优先仅取 `--json number,title,state,labels`，正文按单票按需拉取以免超长输出被截断。
 - 传入含空格、反引号或引号的 `--body` / `--comment` 时，优先使用单引号字符串或通过 `--body-file -` 从标准输入传入。
 - 串联多条命令使用 `;` 配合 `$LASTEXITCODE` 检查（PowerShell 5.1 不支持 `&&`）。
 

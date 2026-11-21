@@ -26,6 +26,7 @@ public static partial class LockGateEncounterSmoke
     private const float ExpectedElevation = 96f;
     private const float ExpectedPlatformTopY = ExpectedFloorY - ExpectedElevation; // 464f
 
+    [SmokeProbe(120)]
     public static void Check(Node host, Action<string> fail)
     {
         var failures = new List<string>();

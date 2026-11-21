@@ -18,6 +18,7 @@ namespace ACTSpike.ACT.Arena;
 /// </summary>
 public static class MultiEnemyStageSmoke
 {
+    [SmokeProbe(50)]
     public static void Check(Node host, Action<string> fail)
     {
         var failures = new List<string>();

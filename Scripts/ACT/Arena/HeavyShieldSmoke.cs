@@ -17,6 +17,7 @@ namespace ACTSpike.ACT.Arena;
 /// </summary>
 public static class HeavyShieldSmoke
 {
+    [SmokeProbe(90)]
     public static void Check(Node host, Action<string> fail)
     {
         var failures = new List<string>();

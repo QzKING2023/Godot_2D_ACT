@@ -11,8 +11,63 @@ $csproj = Join-Path $projectRoot 'ACT Spike.csproj'
 $godotConsole = if ($env:GODOT_CONSOLE) { $env:GODOT_CONSOLE } else { 'D:\Godot\Godot_v4.5.1-stable_mono_win64_console.exe' }
 $smokeLog = Join-Path $projectRoot '.godot\headless-smoke.log'
 
-Write-Host '[Verify] Building C# project (warnings as errors)...'
-& dotnet build $csproj --no-restore -warnaserror -nologo -v minimal
+Write-Host '[Verify] Checking mechanical static guardrails...'
+$guardrailViolations = @()
+$logicDirs = @('Scripts\ACT\Combat', 'Scripts\ACT\Enemy', 'Scripts\ACT\Player', 'Scripts\ACT\Core')
+foreach ($relDir in $logicDirs) {
+    $absDir = Join-Path $projectRoot $relDir
+    if (-not (Test-Path $absDir)) { continue }
+    Get-ChildItem -Path $absDir -Recurse -Filter '*.cs' | ForEach-Object {
+        $file = $_
+        $lineNum = 0
+        foreach ($line in Get-Content $file.FullName) {
+            $lineNum++
+            $trimmed = $line.TrimStart()
+            if ($trimmed.StartsWith('//')) { continue }
+            if ($line -match 'override\s+void\s+_Draw\s*\(') {
+                $relPath = $file.FullName.Substring($projectRoot.Length + 1)
+                $guardrailViolations += "$relPath`:$lineNum`: _Draw() belongs in Visual/ or HUD/, not logic layer"
+            }
+        }
+    }
+}
+
+$actRoot = Join-Path $projectRoot 'Scripts\ACT'
+if (Test-Path $actRoot) {
+    Get-ChildItem -Path $actRoot -Recurse -Filter '*.cs' | Where-Object {
+        $_.Name -notlike '*Smoke.cs' -and $_.Name -ne 'SmokeTest.cs'
+    } | ForEach-Object {
+        $file = $_
+        $lineNum = 0
+        foreach ($line in Get-Content $file.FullName) {
+            $lineNum++
+            $trimmed = $line.TrimStart()
+            if ($trimmed.StartsWith('//')) { continue }
+            if ($line -match '\bCollision(Layer|Mask)\s*=\s*\d+') {
+                $relPath = $file.FullName.Substring($projectRoot.Length + 1)
+                $guardrailViolations += "$relPath`:$lineNum`: use CombatCollisionMasks instead of bare numeric collision mask"
+            }
+        }
+    }
+}
+
+if ($guardrailViolations.Count -gt 0) {
+    foreach ($v in $guardrailViolations) {
+        Write-Host "[Verify] GUARDRAIL: $v"
+    }
+    Write-Error "[Verify] FAIL: $($guardrailViolations.Count) mechanical static guardrail violation(s) found."
+    exit 1
+}
+
+$assetsFile = Join-Path $projectRoot '.godot\mono\temp\obj\project.assets.json'
+if (Test-Path $assetsFile) {
+    Write-Host '[Verify] Building C# project (warnings as errors)...'
+    & dotnet build $csproj --no-restore -warnaserror -nologo -v minimal
+}
+else {
+    Write-Host '[Verify] Restore cache missing (fresh worktree); building with restore (warnings as errors)...'
+    & dotnet build $csproj -warnaserror -nologo -v minimal
+}
 if ($LASTEXITCODE -ne 0) {
     Write-Error "[Verify] FAIL: dotnet build exited with code $LASTEXITCODE"
     exit $LASTEXITCODE
@@ -69,10 +124,21 @@ $logContent = $logLines -join "`n"
 $hasAllPass = $logContent -match '\[Smoke\] ALL PASS'
 $hasResetPass = $logContent -match '\[Smoke\] PASS R reset'
 $hasFail = $logContent -match '\[Smoke\] FAIL'
+$godotErrors = @($logLines | Where-Object { $_ -match '^(ERROR:|SCRIPT ERROR:)' })
+$godotWarnings = @($logLines | Where-Object { $_ -match '^WARNING:' })
 
 if (-not $VerboseSmoke) {
     $logLines | Where-Object { $_ -match '^\[Smoke\] (PASS|FAIL|ALL PASS|DONE)' } | ForEach-Object { Write-Host $_ }
+    if ($godotWarnings.Count -gt 0) {
+        Write-Host "[Verify] WARN: $($godotWarnings.Count) Godot WARNING line(s) recorded in $smokeLog"
+    }
     Write-Host "[Verify] Full smoke log saved to $smokeLog"
+}
+
+if ($godotErrors.Count -gt 0) {
+    $godotErrors | Select-Object -First 5 | ForEach-Object { Write-Host "[Verify] GODOT ERROR: $_" }
+    Write-Error "[Verify] FAIL: Godot emitted $($godotErrors.Count) runtime ERROR/SCRIPT ERROR line(s). Inspect $smokeLog"
+    exit 1
 }
 
 if (-not $hasAllPass -or -not $hasResetPass -or $hasFail) {

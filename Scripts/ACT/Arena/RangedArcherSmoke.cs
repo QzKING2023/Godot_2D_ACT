@@ -22,6 +22,7 @@ public static partial class RangedArcherSmoke
 {
     private const float ProbeFloorY = -2400f;
 
+    [SmokeProbe(100)]
     public static void Check(Node host, Action<string> fail)
     {
         var failures = new List<string>();

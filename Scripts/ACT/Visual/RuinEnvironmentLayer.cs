@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using ACTSpike.ACT.Combat;
 using Godot;
 
 namespace ACTSpike.ACT.Visual;
@@ -101,15 +102,15 @@ public partial class RuinEnvironmentLayer : Node2D
     }
 
     /// <summary>
-    /// Creates a world StaticBody2D (CollisionLayer = 2, CollisionMask = 0) and registers the
+    /// Creates a world StaticBody2D (WorldGeometry layer, mask None) and registers the
     /// exact same Rect2 for procedural faceted platform rendering.
     /// </summary>
     public StaticBody2D AddFacetedStaticBody(Node2D parent, Rect2 rect, bool drawLitTopEdge = true)
     {
         var body = new StaticBody2D
         {
-            CollisionLayer = 2,
-            CollisionMask = 0,
+            CollisionLayer = CombatCollisionMasks.WorldGeometry,
+            CollisionMask = CombatCollisionMasks.None,
             Position = rect.GetCenter()
         };
         body.AddChild(new CollisionShape2D

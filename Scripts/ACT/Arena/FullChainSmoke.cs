@@ -43,6 +43,7 @@ public static class FullChainSmoke
     private static bool _checkingScenes;
 
     /// <summary>Runs full-chain scene, audio buffer, and entry verification on startup.</summary>
+    [SmokeProbe(10)]
     public static void Check(Node host, Action<string> fail)
     {
         if (_checkingScenes)

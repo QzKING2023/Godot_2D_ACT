@@ -1,4 +1,7 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using Godot;
 using ACTSpike.ACT.Audio;
 using ACTSpike.ACT.Combat;
@@ -18,7 +21,10 @@ namespace ACTSpike.ACT.Arena;
 public partial class SmokeTest : Node
 {
     private const float TapSeconds = 0.05f;
+    private const ulong SmokeFrameBudget = 3600UL;
     private static bool _resetProbePending;
+    private ulong _smokeStartTicksMsec;
+    private ulong _smokeStartPhysicsFrames;
 
     private enum Phase
     {
@@ -81,25 +87,49 @@ public partial class SmokeTest : Node
             GetTree().Quit(0);
             return;
         }
+        _smokeStartTicksMsec = Time.GetTicksMsec();
+        _smokeStartPhysicsFrames = Engine.GetPhysicsFrames();
         Player.CombatFeedback += line => _feedback.Add(line);
         SubscribePresentationEvents();
         CheckDisplayAndFontContract();
         CheckGeometricPaletteAndPrimitives();
-        FullChainSmoke.Check(GetParent(), Fail);
-        RuinStageSmoke.Check(GetParent(), Fail);
+        int earlyProbes = RunRegisteredSmokeProbes(int.MinValue, 29);
         CheckAttackContractDifferences();
         PresentationVisualSmoke.Check(this, Player, Enemy, TimeSlow, Fail);
         ProceduralAudioSmoke.Check(GetParent());
-        HudFlowSmoke.Check(GetParent(), Fail);
-        MultiEnemyStageSmoke.Check(GetParent(), Fail);
-        DirectionalCombatContractSmoke.Check(GetParent(), Fail);
-        EncounterAttackCoordinatorSmoke.Check(GetParent(), Fail);
-        MeleeScoutSmoke.Check(GetParent(), Fail);
-        HeavyShieldSmoke.Check(GetParent(), Fail);
-        RangedArcherSmoke.Check(GetParent(), Fail);
-        RuinGuardianBossSmoke.Check(GetParent(), Fail);
-        LockGateEncounterSmoke.Check(GetParent(), Fail);
-        GD.Print("[Smoke] running (ACT_SMOKE=1)");
+        int mainProbes = RunRegisteredSmokeProbes(30, int.MaxValue);
+        if (earlyProbes + mainProbes == 0)
+            Fail("no [SmokeProbe] methods discovered in assembly");
+        GD.Print($"[Smoke] running (ACT_SMOKE=1, probes={earlyProbes + mainProbes})");
+    }
+
+    private int RunRegisteredSmokeProbes(int minOrder, int maxOrder)
+    {
+        var probes = typeof(SmokeTest).Assembly
+            .GetTypes()
+            .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Static))
+            .Select(method => (Method: method, Attr: method.GetCustomAttribute<SmokeProbeAttribute>()))
+            .Where(entry => entry.Attr is not null && entry.Attr.Order >= minOrder && entry.Attr.Order <= maxOrder)
+            .OrderBy(entry => entry.Attr!.Order)
+            .ThenBy(entry => entry.Method.DeclaringType?.FullName, StringComparer.Ordinal)
+            .ToArray();
+
+        Node host = GetParent();
+        Action<string> fail = Fail;
+        foreach (var (method, _) in probes)
+        {
+            ParameterInfo[] parameters = method.GetParameters();
+            if (parameters.Length != 2
+                || parameters[0].ParameterType != typeof(Node)
+                || parameters[1].ParameterType != typeof(Action<string>))
+            {
+                Fail($"[SmokeProbe] {method.DeclaringType?.Name}.{method.Name} must have signature (Node, Action<string>)");
+                continue;
+            }
+            method.Invoke(null, new object[] { host, fail });
+        }
+
+        return probes.Length;
     }
 
     private void SubscribePresentationEvents()
@@ -544,7 +574,7 @@ public partial class SmokeTest : Node
                         Finish();
                         break;
                     }
-                    GD.Print($"[Smoke] ALL PASS ({_feedback.Count} combat events observed)");
+                    GD.Print(FormatAllPassSummary());
                     _resetProbePending = true;
                     SetAction("reset_round", true);
                 }
@@ -606,10 +636,17 @@ public partial class SmokeTest : Node
         _failures.Add(reason);
     }
 
+    private string FormatAllPassSummary()
+    {
+        ulong elapsedMs = Time.GetTicksMsec() - _smokeStartTicksMsec;
+        ulong framesUsed = Engine.GetPhysicsFrames() - _smokeStartPhysicsFrames;
+        return $"[Smoke] ALL PASS ({_feedback.Count} combat events observed, physics_frames={framesUsed}/{SmokeFrameBudget}, elapsed={elapsedMs}ms)";
+    }
+
     private void Finish()
     {
         GD.Print(_failures.Count == 0
-            ? $"[Smoke] ALL PASS ({_feedback.Count} combat events observed)"
+            ? FormatAllPassSummary()
             : $"[Smoke] DONE WITH {_failures.Count} FAILURE(S)");
         GetTree().Quit(_failures.Count == 0 ? 0 : 1);
     }

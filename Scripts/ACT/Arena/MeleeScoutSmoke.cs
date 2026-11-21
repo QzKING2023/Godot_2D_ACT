@@ -20,6 +20,7 @@ public static class MeleeScoutSmoke
 {
     private const float ProbeFloorY = -2000f;
 
+    [SmokeProbe(80)]
     public static void Check(Node host, Action<string> fail)
     {
         var failures = new List<string>();

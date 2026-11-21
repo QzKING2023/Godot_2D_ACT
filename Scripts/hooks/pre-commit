@@ -12,8 +12,41 @@ if printf '%s\n' "$staged" | grep -Eq '^\.codex(-remote-attachments)?/'; then
   exit 1
 fi
 
+# Mechanical static guardrails on staged C# files
+staged_cs="$(printf '%s\n' "$staged" | grep -Ei '^Scripts/ACT/.*\.cs$' || true)"
+if [ -n "$staged_cs" ]; then
+  guardrail_failed=0
+  for file in $staged_cs; do
+    [ -f "$file" ] || continue
+    case "$file" in
+      Scripts/ACT/Combat/*|Scripts/ACT/Enemy/*|Scripts/ACT/Player/*|Scripts/ACT/Core/*)
+        if grep -En 'override[[:space:]]+void[[:space:]]+_Draw[[:space:]]*\(' "$file" | grep -Ev '^[0-9]+:[[:space:]]*//' >/dev/null 2>&1; then
+          echo "[pre-commit] FAIL: $file defines _Draw() in logic layer (move drawing to Visual/ or HUD/)." >&2
+          guardrail_failed=1
+        fi
+        ;;
+    esac
+    case "$file" in
+      *Smoke.cs|*/SmokeTest.cs) ;;
+      *)
+        if grep -En '\bCollision(Layer|Mask)[[:space:]]*=[[:space:]]*[0-9]+' "$file" | grep -Ev '^[0-9]+:[[:space:]]*//' >/dev/null 2>&1; then
+          echo "[pre-commit] FAIL: $file assigns bare numeric CollisionLayer/CollisionMask (use CombatCollisionMasks)." >&2
+          guardrail_failed=1
+        fi
+        ;;
+    esac
+  done
+  if [ "$guardrail_failed" -ne 0 ]; then
+    exit 1
+  fi
+fi
+
 # Run zero-warning C# build whenever C# project or source files are staged
 if printf '%s\n' "$staged" | grep -Eqi '\.(cs|csproj|sln)$'; then
   echo "[pre-commit] Running zero-warning C# build..."
-  dotnet build "ACT Spike.csproj" --no-restore -warnaserror -nologo -v minimal
+  if [ -f ".godot/mono/temp/obj/project.assets.json" ]; then
+    dotnet build "ACT Spike.csproj" --no-restore -warnaserror -nologo -v minimal
+  else
+    dotnet build "ACT Spike.csproj" -warnaserror -nologo -v minimal
+  fi
 fi

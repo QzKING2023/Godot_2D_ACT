@@ -53,6 +53,7 @@ public static class RuinStageSmoke
         "res://Scenes/Tutorial/Combat.tscn"
     };
 
+    [SmokeProbe(20)]
     public static void Check(Node coreLoop, Action<string> fail)
     {
         CheckThemeProgression(fail);

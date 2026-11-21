@@ -17,6 +17,7 @@ namespace ACTSpike.ACT.HUD;
 /// </summary>
 public static class HudFlowSmoke
 {
+    [SmokeProbe(40)]
     public static void Check(Node coreLoop, Action<string> fail)
     {
         var failures = new List<string>();
